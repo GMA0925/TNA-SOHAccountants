@@ -1,0 +1,274 @@
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\obj\Debug\SOHmiddleware.csproj.AssemblyReference.cache
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\obj\Debug\SOHmiddleware.Form1.resources
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\obj\Debug\SOHmiddleware.Login.resources
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\obj\Debug\SOHmiddleware.Properties.Resources.resources
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\obj\Debug\SOHmiddleware.Reader.resources
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\obj\Debug\SOHmiddleware.csproj.GenerateResource.cache
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\obj\Debug\SOHmiddleware.csproj.CoreCompileInputs.cache
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\ReaderSDKs\IReaderCommand.cs
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\ReaderSDKs\ReaderConfig.cs
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\ReaderSDKs\Configs\DS-K1T341CMFW.json
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\ReaderSDKs\Configs\DS-K1T341CMW.json
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\ReaderSDKs\Configs\DS-K1T342MFWX-E1.json
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\ReaderSDKs\Configs\DS-K1T342MWX-E1.json
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\ReaderSDKs\Configs\DS-K1T673DWX(O-STD).json
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\ReaderSDKs\Configs\Honeywell.json
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\ReaderSDKs\Configs\Zebra.json
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\SOHmiddleware.exe.config
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\SOHmiddleware.exe
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\SOHmiddleware.pdb
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\Microsoft.Data.Sqlite.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\Newtonsoft.Json.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\SQLitePCLRaw.batteries_v2.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\SQLitePCLRaw.core.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\SQLitePCLRaw.provider.e_sqlite3.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\System.Buffers.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\System.Data.SQLite.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\System.Memory.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\System.Numerics.Vectors.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\System.Runtime.CompilerServices.Unsafe.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\Microsoft.Data.Sqlite.xml
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\Newtonsoft.Json.xml
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\System.Buffers.xml
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\System.Data.SQLite.xml
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\System.Memory.xml
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\System.Numerics.Vectors.xml
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\bin\Debug\System.Runtime.CompilerServices.Unsafe.xml
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\obj\Debug\SOHmiddl.23F40458.Up2Date
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\obj\Debug\SOHmiddleware.exe
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\obj\Debug\SOHmiddleware.pdb
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware\obj\Debug\SOHmiddleware.exe.config
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\IReaderCommand.cs
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\ReaderConfig.cs
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\DS-K1T341CMFW.json
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\DS-K1T341CMW.json
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\DS-K1T342MFWX-E1.json
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\DS-K1T342MWX-E1.json
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\DS-K1T673DWX(O-STD).json
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\Honeywell.json
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\Zebra.json
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\SOHmiddleware.exe.config
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\SOHmiddleware.exe
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\SOHmiddleware.pdb
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\Microsoft.Data.Sqlite.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\Newtonsoft.Json.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\SQLitePCLRaw.batteries_v2.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\SQLitePCLRaw.core.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\SQLitePCLRaw.provider.e_sqlite3.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\System.Buffers.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\System.Data.SQLite.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\System.Memory.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\System.Numerics.Vectors.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\System.Runtime.CompilerServices.Unsafe.dll
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\Microsoft.Data.Sqlite.xml
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\Newtonsoft.Json.xml
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\System.Buffers.xml
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\System.Data.SQLite.xml
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\System.Memory.xml
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\System.Numerics.Vectors.xml
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\bin\Debug\System.Runtime.CompilerServices.Unsafe.xml
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.csproj.AssemblyReference.cache
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.Form1.resources
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.Login.resources
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.Properties.Resources.resources
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.Reader.resources
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.csproj.GenerateResource.cache
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.csproj.CoreCompileInputs.cache
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\obj\Debug\SOHmiddl.23F40458.Up2Date
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.exe
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.pdb
+C:\Users\Greg Adler\OneDrive\GitHub\SOH Solutions\SOH-Solutions\Middleware Application\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.exe.config
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\runtimes\win-x64\native\WebView2Loader.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\SQLite.Interop.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\SQLdb\localbuffer.db
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\HCNetSDK.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\PlayCtrl.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\IReaderCommand.cs
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\ReaderConfig.cs
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\DS-K1T341CMFW.json
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\DS-K1T341CMW.json
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\DS-K1T342MFWX-E1.json
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\DS-K1T342MWX-E1.json
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\DS-K1T673DWX(O-STD).json
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\Honeywell.json
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\Zebra.json
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\SOHmiddleware.exe.config
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\SOHmiddleware.exe.manifest
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\SOHmiddleware.application
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\SOHmiddleware.exe
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\SOHmiddleware.pdb
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\Hikvison.DeviceNetwork.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\Microsoft.Bcl.AsyncInterfaces.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\Microsoft.Web.WebView2.Core.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\Microsoft.Web.WebView2.WinForms.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\Microsoft.Web.WebView2.Wpf.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\Newtonsoft.Json.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.Buffers.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.Data.DataSetExtensions.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.Data.SQLite.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.IO.Pipelines.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.Memory.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.Numerics.Vectors.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.Runtime.CompilerServices.Unsafe.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.Text.Encodings.Web.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.Text.Json.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.Threading.Tasks.Extensions.dll
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\Microsoft.Bcl.AsyncInterfaces.xml
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\Microsoft.Web.WebView2.Core.xml
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\Microsoft.Web.WebView2.WinForms.xml
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\Microsoft.Web.WebView2.Wpf.xml
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\Newtonsoft.Json.xml
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.Buffers.xml
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.Data.SQLite.xml
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.Data.SQLite.dll.config
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.IO.Pipelines.xml
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.Memory.xml
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.Numerics.Vectors.xml
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.Runtime.CompilerServices.Unsafe.xml
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.Text.Encodings.Web.xml
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.Text.Json.xml
+D:\SOH Solutions\SOHmiddleware - Copy\bin\Debug\System.Threading.Tasks.Extensions.xml
+D:\SOH Solutions\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.csproj.AssemblyReference.cache
+D:\SOH Solutions\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.Form1.resources
+D:\SOH Solutions\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.Login.resources
+D:\SOH Solutions\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.PopupBrowserForm.resources
+D:\SOH Solutions\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.Properties.Resources.resources
+D:\SOH Solutions\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.Reader.resources
+D:\SOH Solutions\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.csproj.GenerateResource.cache
+D:\SOH Solutions\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.csproj.CoreCompileInputs.cache
+D:\SOH Solutions\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.TrustInfo.xml
+D:\SOH Solutions\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.exe.manifest
+D:\SOH Solutions\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.application
+D:\SOH Solutions\SOHmiddleware - Copy\obj\Debug\SOHmiddl.23F40458.Up2Date
+D:\SOH Solutions\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.exe
+D:\SOH Solutions\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.pdb
+D:\SOH Solutions\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.exe.config
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\runtimes\win-x64\native\WebView2Loader.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\SQLite.Interop.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\SQLdb\localbuffer.db
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\HCNetSDK.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\PlayCtrl.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\IReaderCommand.cs
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\ReaderConfig.cs
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\DS-K1T341CMFW.json
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\DS-K1T341CMW.json
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\DS-K1T342MFWX-E1.json
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\DS-K1T342MWX-E1.json
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\DS-K1T673DWX(O-STD).json
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\Honeywell.json
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\ReaderSDKs\Configs\Zebra.json
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\SOHmiddleware.exe.config
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\SOHmiddleware.exe.manifest
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\SOHmiddleware.application
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\SOHmiddleware.exe
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\SOHmiddleware.pdb
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\Hikvison.DeviceNetwork.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\Microsoft.Bcl.AsyncInterfaces.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\Microsoft.Web.WebView2.Core.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\Microsoft.Web.WebView2.WinForms.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\Microsoft.Web.WebView2.Wpf.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\Newtonsoft.Json.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.Buffers.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.Data.DataSetExtensions.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.Data.SQLite.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.IO.Pipelines.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.Memory.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.Numerics.Vectors.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.Runtime.CompilerServices.Unsafe.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.Text.Encodings.Web.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.Text.Json.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.Threading.Tasks.Extensions.dll
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\Microsoft.Bcl.AsyncInterfaces.xml
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\Microsoft.Web.WebView2.Core.xml
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\Microsoft.Web.WebView2.WinForms.xml
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\Microsoft.Web.WebView2.Wpf.xml
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\Newtonsoft.Json.xml
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.Buffers.xml
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.Data.SQLite.xml
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.Data.SQLite.dll.config
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.IO.Pipelines.xml
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.Memory.xml
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.Numerics.Vectors.xml
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.Runtime.CompilerServices.Unsafe.xml
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.Text.Encodings.Web.xml
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.Text.Json.xml
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\bin\Debug\System.Threading.Tasks.Extensions.xml
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.csproj.AssemblyReference.cache
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.Form1.resources
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.Login.resources
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.PopupBrowserForm.resources
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.Properties.Resources.resources
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.Reader.resources
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.csproj.GenerateResource.cache
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.csproj.CoreCompileInputs.cache
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.TrustInfo.xml
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.exe.manifest
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.application
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\obj\Debug\SOHmiddl.23F40458.Up2Date
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.exe
+C:\Dev Projects\SOH Solutions - Broken Listener\SOHmiddleware - Copy\obj\Debug\SOHmiddleware.pdb
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\obj\Debug\SOHmiddleware.csproj.AssemblyReference.cache
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\obj\Debug\SOHmiddleware.Form1.resources
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\obj\Debug\SOHmiddleware.Login.resources
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\obj\Debug\SOHmiddleware.PopupBrowserForm.resources
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\obj\Debug\SOHmiddleware.Properties.Resources.resources
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\obj\Debug\SOHmiddleware.Reader.resources
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\obj\Debug\SOHmiddleware.csproj.GenerateResource.cache
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\obj\Debug\SOHmiddleware.csproj.CoreCompileInputs.cache
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\runtimes\win-x64\native\WebView2Loader.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\SQLite.Interop.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\SQLdb\localbuffer.db
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\HCNetSDK.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\PlayCtrl.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\ReaderSDKs\IReaderCommand.cs
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\ReaderSDKs\ReaderConfig.cs
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\ReaderSDKs\Configs\DS-K1T341CMFW.json
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\ReaderSDKs\Configs\DS-K1T341CMW.json
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\ReaderSDKs\Configs\DS-K1T342MFWX-E1.json
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\ReaderSDKs\Configs\DS-K1T342MWX-E1.json
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\ReaderSDKs\Configs\DS-K1T673DWX(O-STD).json
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\ReaderSDKs\Configs\Honeywell.json
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\ReaderSDKs\Configs\Zebra.json
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\SOHmiddleware.exe.config
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\SOHmiddleware.exe.manifest
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\SOHmiddleware.application
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\SOHmiddleware.exe
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\SOHmiddleware.pdb
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\Hikvison.DeviceNetwork.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\Microsoft.Bcl.AsyncInterfaces.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\Microsoft.Web.WebView2.Core.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\Microsoft.Web.WebView2.WinForms.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\Microsoft.Web.WebView2.Wpf.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\Newtonsoft.Json.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.Buffers.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.Data.DataSetExtensions.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.Data.SQLite.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.IO.Pipelines.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.Memory.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.Numerics.Vectors.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.Runtime.CompilerServices.Unsafe.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.Text.Encodings.Web.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.Text.Json.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.Threading.Tasks.Extensions.dll
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\Microsoft.Bcl.AsyncInterfaces.xml
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\Microsoft.Web.WebView2.Core.xml
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\Microsoft.Web.WebView2.WinForms.xml
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\Microsoft.Web.WebView2.Wpf.xml
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\Newtonsoft.Json.xml
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.Buffers.xml
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.Data.SQLite.xml
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.Data.SQLite.dll.config
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.IO.Pipelines.xml
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.Memory.xml
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.Numerics.Vectors.xml
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.Runtime.CompilerServices.Unsafe.xml
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.Text.Encodings.Web.xml
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.Text.Json.xml
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\bin\Debug\System.Threading.Tasks.Extensions.xml
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\obj\Debug\SOHmiddleware.TrustInfo.xml
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\obj\Debug\SOHmiddleware.exe.manifest
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\obj\Debug\SOHmiddleware.application
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\obj\Debug\SOHmiddl.23F40458.Up2Date
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\obj\Debug\SOHmiddleware.exe
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\obj\Debug\SOHmiddleware.pdb
+C:\Dev Projects\SOH Solutions\SOHmiddleware - Feb 2026\obj\Debug\SOHmiddleware.exe.config

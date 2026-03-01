@@ -1,0 +1,10 @@
+{
+  "model": "DS-K1T673DWX(O-STD)",
+  "commands": {
+    "read": "DS673_READ",
+    "reset": "DS673_RESET",
+    "status": "DS673_STATUS",
+    "capture": "DS673_CAPTURE",
+    "verify": "DS673_VERIFY"
+  }
+}

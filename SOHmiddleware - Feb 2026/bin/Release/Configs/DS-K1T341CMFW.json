@@ -1,0 +1,10 @@
+{
+  "model": "DS-K1T341CMFW",
+  "commands": {
+    "read": "DS341_READ",
+    "reset": "DS341_RESET",
+    "status": "DS341_STATUS",
+    "capture": "DS341_CAPTURE",
+    "verify": "DS341_VERIFY"
+  }
+}

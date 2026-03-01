@@ -1,0 +1,3828 @@
+﻿using Hikvision.DeviceNetwork;
+using Microsoft.Web.WebView2.Core;
+using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Data.SqlClient;
+using System.Data.SQLite;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Timers;
+using System.Transactions;
+using System.Windows.Forms;
+using System.Windows.Forms.DataVisualization.Charting;
+using static Hikvision.DeviceNetwork.CHCNetSDK;
+using static SOHmiddleware.Login;
+using static SOHmiddleware.ReaderEmulator;
+using Timer = System.Windows.Forms.Timer;
+
+namespace SOHmiddleware
+{
+    public partial class Form1 : Form
+    {
+        private HttpListener listener;
+        private CancellationTokenSource cts;
+
+        // Shutdown coordination
+        private volatile bool isStopping;
+        private readonly object stopLock = new object();
+        private bool stopNotified;
+
+        // File logging
+        private readonly object fileLock = new object();
+        private readonly string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "events.log");
+
+        // Track last check-in times per employee
+        private Dictionary<string, DateTime> lastCheckIns = new Dictionary<string, DateTime>();
+
+        [StructLayout(LayoutKind.Sequential)] public struct NET_DVR_USER_LOGIN_INFO { [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string sDeviceAddress; public ushort wPort; [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string sUserName; [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string sPassword; }
+        [StructLayout(LayoutKind.Sequential)] public struct NET_DVR_DEVICEINFO_V40 { [MarshalAs(UnmanagedType.ByValArray, SizeConst = 64)] public byte[] byDeviceInfo; }
+        [StructLayout(LayoutKind.Sequential)] public struct NET_DVR_USER_INFO { public int dwEmployeeNo; [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string byName; public byte byUserType; [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)] public byte[] byDoorRight; }
+        [DllImport("HCNetSDK.dll")] public static extern bool NET_DVR_Init(); 
+        [DllImport("HCNetSDK.dll")] public static extern int NET_DVR_Login_V40(ref NET_DVR_USER_LOGIN_INFO loginInfo, ref NET_DVR_DEVICEINFO_V40 deviceInfo); 
+        [DllImport("HCNetSDK.dll")] public static extern bool NET_DVR_Logout(int userId); 
+        [DllImport("HCNetSDK.dll")] public static extern bool NET_DVR_Cleanup(); 
+        [DllImport("HCNetSDK.dll")] public static extern bool NET_DVR_AddUserInfo(int userId, ref NET_DVR_USER_INFO userInfo); 
+        [DllImport("HCNetSDK.dll")] public static extern uint NET_DVR_GetLastError();
+
+        private CoreWebView2Environment _env;
+        private string _pendingUsername;
+        private string _pendingPassword;
+        private bool _navigationHandlerAttached;
+
+        public Form1()
+        {
+            InitializeComponent();
+        }
+        private DashboardMetrics metrics;
+        private ReaderEmulator emulator;
+
+        private void LoadDashboardCharts()
+        {
+            string connStr = Properties.Settings.Default.SQLCon;
+
+            // 1. SQL Buffer Transactions
+            try
+            {
+                chartSqlBuffer.Series.Clear();
+                var sqlSeries = new Series("Transactions") { ChartType = SeriesChartType.Line };
+
+                using (SqlConnection conn = new SqlConnection(connStr))
+                {
+                    conn.Open();
+                    string query = @"
+                SELECT TOP 7 COUNT(*) AS CountPerMinute, 
+                       DATEPART(MINUTE, Timestamp) AS MinuteMark
+                FROM Transactions
+                WHERE Timestamp >= DATEADD(MINUTE, -10, GETDATE())
+                GROUP BY DATEPART(MINUTE, Timestamp)
+                ORDER BY MinuteMark";
+
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            string label = $"Min {reader["MinuteMark"]}";
+                            int count = Convert.ToInt32(reader["CountPerMinute"]);
+                            sqlSeries.Points.AddXY(label, count);
+                        }
+                    }
+                }
+
+                if (sqlSeries.Points.Count == 0)
+                    sqlSeries.Points.AddXY("No Data", 0);
+
+                chartSqlBuffer.Series.Add(sqlSeries);
+                Log($"✅ SQL buffer chart refreshed with {sqlSeries.Points.Count} points.", true);
+            }
+            catch (Exception ex)
+            {
+                Log($"❌ SQL buffer chart error: {ex.Message}", false);
+            }
+
+            // 2. Config Validation Status
+            try
+            {
+                chartConfigStatus.Series.Clear();
+                var configSeries = new Series("ConfigStatus") { ChartType = SeriesChartType.Pie };
+
+                using (SqlConnection conn = new SqlConnection(connStr))
+                {
+                    conn.Open();
+                    string query = @"
+                SELECT IsValid, COUNT(*) AS Count
+                FROM ConfigValidationLog
+                GROUP BY IsValid";
+
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            string label = (bool)reader["IsValid"] ? "Valid" : "Invalid";
+                            int count = Convert.ToInt32(reader["Count"]);
+                            configSeries.Points.AddXY(label, count);
+                        }
+                    }
+                }
+
+                if (configSeries.Points.Count == 0)
+                    configSeries.Points.AddXY("No Data", 0);
+
+                chartConfigStatus.Series.Add(configSeries);
+                Log($"✅ Config status chart refreshed with {configSeries.Points.Count} slices.", true);
+            }
+            catch (Exception ex)
+            {
+                Log($"❌ Config status chart error: {ex.Message}", false);
+            }
+
+            // 3. SDK Command Results
+            try
+            {
+                chartCommandResults.Series.Clear();
+                var sdkSeries = new Series("CommandResults") { ChartType = SeriesChartType.Bar };
+
+                using (SqlConnection conn = new SqlConnection(connStr))
+                {
+                    conn.Open();
+                    string query = @"
+                SELECT Result, COUNT(*) AS Count
+                FROM Transactions
+                GROUP BY Result";
+
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            string result = reader["Result"].ToString();
+                            int count = Convert.ToInt32(reader["Count"]);
+                            sdkSeries.Points.AddXY(result, count);
+                        }
+                    }
+                }
+
+                if (sdkSeries.Points.Count == 0)
+                    sdkSeries.Points.AddXY("No Data", 0);
+
+                chartCommandResults.Series.Add(sdkSeries);
+                Log($"✅ SDK command chart refreshed with {sdkSeries.Points.Count} bars.", true);
+            }
+            catch (Exception ex)
+            {
+                Log($"❌ SDK command chart error: {ex.Message}", false);
+            }
+
+            // 4. Uptime Duration
+            try
+            {
+                chartUptime.Series.Clear();
+                var uptimeSeries = new Series("Uptime") { ChartType = SeriesChartType.Line };
+
+                using (SqlConnection conn = new SqlConnection(connStr))
+                {
+                    conn.Open();
+                    string query = "SELECT TOP 1 StartTime FROM SystemSession ORDER BY StartTime DESC";
+                    DateTime startTime;
+
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        var result = cmd.ExecuteScalar();
+                        startTime = result != null ? Convert.ToDateTime(result) : DateTime.Now;
+                    }
+
+                    int totalMinutes = (int)(DateTime.Now - startTime).TotalMinutes;
+                    for (int i = 0; i <= 60; i += 10)
+                    {
+                        uptimeSeries.Points.AddXY($"{i} min", Math.Min(i, totalMinutes));
+                    }
+                }
+
+                chartUptime.Series.Add(uptimeSeries);
+                Log($"✅ Uptime chart refreshed with {uptimeSeries.Points.Count} points.", true);
+            }
+            catch (Exception ex)
+            {
+                Log($"❌ Uptime chart error: {ex.Message}", false);
+            }
+        }
+
+
+
+
+        public void SaveTransactionLocally(string readerId, string payload)
+        {
+            string localConnStr = Properties.Settings.Default.LocalSQLiteCon;
+            using (var conn = new SQLiteConnection(localConnStr))
+            {
+                conn.Open();
+                var cmd = new SQLiteCommand("INSERT INTO Transactions (ReaderId, Timestamp, Payload, Synced,SiteId) VALUES (@id, @ts, @data, 0,@SiteId)", conn);
+                cmd.Parameters.AddWithValue("@id", readerId);
+                cmd.Parameters.AddWithValue("@ts", DateTime.Now);
+                cmd.Parameters.AddWithValue("@data", payload);
+                cmd.Parameters.AddWithValue("@SiteId", Properties.Settings.Default.SiteID.ToString());
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        public void SyncToCloud()
+        {
+            var unsynced = GetUnsyncedTransactions();
+            int total = unsynced.Count;
+            int synced = 0;
+
+            Log("🔄 Sync started. Checking for unsynced transactions…");
+            lblSyncStatusDash.Text = $"🔄 Syncing {total} transaction(s)…";
+            lblSyncStatusDash.ForeColor = Color.DarkOrange;
+
+            progressSync.Value = 0;
+            progressSync.Maximum = total > 0 ? total : 1;
+
+            if (total == 0)
+            {
+                Log("✅ No unsynced transactions found.", true);
+                return;
+            }
+
+            foreach (var tx in unsynced)
+            {
+                bool success = PushToCloud(tx);
+                if (success)
+                {
+                    MarkAsSynced(tx.Id);
+                    Log($"✅ Tx {tx.Id} synced.", true);
+                }
+                else
+                {
+                    Log($"❌ Tx {tx.Id} failed to sync.", false);
+                    AddToErrorQueue(tx);
+                }
+
+                synced++;
+                progressSync.Value = Math.Min(synced, progressSync.Maximum);
+            }
+
+            if (errorQueue.Count > 0)
+            {
+                Log($"⚠️ {errorQueue.Count} transaction(s) failed. Retrying now…");
+                RetryFailedSyncs();
+            }
+
+            lblSyncStatusDash.Text = $"✅ Sync complete at {DateTime.Now:HH:mm:ss}";
+            lblSyncStatusDash.ForeColor = errorQueue.Count > 0 ? Color.Red : Color.Green;
+
+            lblLastSync.Text = $"Last sync: {DateTime.Now:HH:mm:ss}";
+            lblFailedCount.Text = $"Failed: {errorQueue.Count}";
+            btnRetrySync.Text = $"Retry Failed ({errorQueue.Count})";
+            btnRetrySync.Enabled = errorQueue.Count > 0;
+        }
+
+        private void RetryFailedSyncs()
+        {
+            Log($"🔁 Retrying {errorQueue.Count} failed transaction(s)…");
+
+            var retryList = new List<Transaction>(errorQueue);
+            errorQueue.Clear();
+
+            foreach (var tx in retryList)
+            {
+                bool success = PushToCloud(tx);
+                if (success)
+                {
+                    MarkAsSynced(tx.Id);
+                    Log($"✅ Retry success: Tx {tx.Id}", true);
+                }
+                else
+                {
+                    Log($"❌ Retry failed: Tx {tx.Id}", false);
+                    AddToErrorQueue(tx); // Re-queue
+                }
+            }
+            lblSyncStatusDash.Text = $"✅ Sync complete at {DateTime.Now:HH:mm:ss}";
+            lblSyncStatusDash.ForeColor = errorQueue.Count > 0 ? Color.Red : Color.Green;
+
+            lblLastSync.Text = $"Last sync: {DateTime.Now:HH:mm:ss}";
+            lblFailedCount.Text = $"Failed: {errorQueue.Count}";
+            btnRetrySync.Text = $"Retry Failed ({errorQueue.Count})";
+            btnRetrySync.Enabled = errorQueue.Count > 0;
+        }
+
+
+        private List<Transaction> errorQueue = new List<Transaction>();
+
+        private void AddToErrorQueue(Transaction tx)
+        {
+            errorQueue.Add(tx);
+        }
+
+
+        private List<Transaction> GetUnsyncedTransactions()
+        {
+            var transactions = new List<Transaction>();
+            string localConnStr = Properties.Settings.Default.LocalSQLiteCon;
+
+            try
+            {
+                using (var conn = new SQLiteConnection(localConnStr))
+                {
+                    conn.Open();
+                    var cmd = conn.CreateCommand();
+                    cmd.CommandText = "SELECT Id, ReaderId, Timestamp, Payload FROM Transactions WHERE Synced = 0";
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            transactions.Add(new Transaction
+                            {
+                                Id = reader.GetInt32(0),
+                                ReaderId = reader.GetString(1),
+                                Timestamp = reader.GetDateTime(2),
+                                Payload = reader.GetString(3)
+                            });
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"❌ Error reading local buffer: {ex.Message}", false);
+            }
+
+            return transactions;
+        }
+
+        private bool PushToCloud(Transaction transaction)
+        {
+            string cloudConnStr = Properties.Settings.Default.SQLCon;
+
+            try
+            {
+                using (var conn = new SqlConnection(cloudConnStr))
+                {
+                    conn.Open();
+                    var cmd = new SqlCommand(@"
+                INSERT INTO Transactions (ReaderId, Timestamp, Payload, Source)
+                VALUES (@ReaderId, @Timestamp, @Payload, 'LocalSync')", conn);
+
+                    cmd.Parameters.AddWithValue("@ReaderId", transaction.ReaderId);
+                    cmd.Parameters.AddWithValue("@Timestamp", transaction.Timestamp);
+                    cmd.Parameters.AddWithValue("@Payload", transaction.Payload);
+
+                    cmd.ExecuteNonQuery();
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"❌ Cloud push failed for Tx {transaction.Id}: {ex.Message}", false);
+                return false;
+            }
+        }
+
+        public void MarkAsSynced(int id)
+        {
+            string localConnStr = Properties.Settings.Default.LocalSQLiteCon;
+
+            try
+            {
+                using (var conn = new SQLiteConnection(localConnStr))
+                {
+                    conn.Open();
+                    var cmd = conn.CreateCommand();
+                    cmd.CommandText = "UPDATE Transactions SET Synced = 1 WHERE Id = @id";
+                    cmd.Parameters.AddWithValue("@id", id);
+                    int rows = cmd.ExecuteNonQuery();
+                    Log($"📝 Marked Tx {id} as synced ({rows} row(s) updated).", true);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"❌ Failed to mark Tx {id} as synced: {ex.Message}", false);
+            }
+        }
+
+        private void btnTestCloudConn_Click(object sender, EventArgs e)
+        {
+            string connStr = txtCloudConnStr.Text;
+
+            try
+            {
+                using (var conn = new SqlConnection(connStr))
+                {
+                    conn.Open();
+                    lblCloudStatus.Text = "✅ Connected";
+                    lblCloudStatus.ForeColor = Color.Green;
+                    Log("✅ Cloud SQL connection successful.", true); // green
+                }
+            }
+            catch (Exception ex)
+            {
+                lblCloudStatus.Text = $"❌ Failed: {ex.Message}";
+                lblCloudStatus.ForeColor = Color.Red;
+                Log($"❌ Cloud SQL connection failed: {ex.Message}", false); // red
+            }
+        }
+
+        private void UpdateLocalTransactionList(ReaderData data)
+        {
+            if (data == null) return;
+
+            var item = new ListViewItem(data.Timestamp.ToString("yyyy-MM-dd HH:mm:ss"));
+            item.SubItems.Add(data.ReaderId);
+            item.SubItems.Add(data.EventType);
+            item.SubItems.Add(data.Value ?? "");
+            item.SubItems.Add(data.PayloadRaw ?? "");
+            item.SubItems.Add(data.IsEmulated ? "Yes" : "No");
+            item.SubItems.Add(data.SiteId);
+
+            // Optional: color emulated rows
+            if (data.IsEmulated)
+                item.BackColor = Color.LightYellow;
+
+            lvLocalTransactions.Items.Add(item);
+        }
+
+        private bool isEditMode = false;
+        private string selectedEmployeeId = null;
+
+        private bool IsListenerRunning() { return listener != null && listener.IsListening; }
+
+        //private void StartListener(string prefix)
+        //{
+        //    if (IsListenerRunning())
+        //    {
+        //        AppendLog("ℹ️ Listener already running, skipping start.");
+        //        return;
+        //    }
+
+        //    try
+        //    {
+        //        listener = new HttpListener();
+        //        listener.Prefixes.Add(prefix);
+        //        listener.Start();
+
+        //        cts = new CancellationTokenSource();
+        //        isStopping = false;
+        //        stopNotified = false;
+
+        //        ThreadPool.QueueUserWorkItem(_ => ListenForEvents(cts.Token));
+
+        //        AppendLog($"✅ Listener started on {prefix}");
+        //        lblReaderStatus.ForeColor = Color.Green;
+        //        lblReaderStatus.Text = "Connected successfully...";
+        //    }
+        //    catch (HttpListenerException hlex)
+        //    {
+        //        AppendLog($"❌ Listener failed: {hlex.Message}");
+
+        //        if (hlex.ErrorCode == 5)
+        //        {
+        //            AppendLog("⚠️ Access denied. Run as Administrator or reserve the URL with netsh.");
+        //        }
+        //        else if (hlex.ErrorCode == 32)
+        //        {
+        //            AppendLog("⚠️ Port 8000 already in use. Trying fallback port...");
+        //            TryFallbackPort();
+        //        }
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        AppendLog($"❌ Unexpected error starting listener: {ex.Message}");
+        //    }
+        //}
+
+        private void TryFallbackPort()
+        {
+            int[] fallbackPorts = { 8001, 8002, 8080 };
+
+            foreach (var port in fallbackPorts)
+            {
+                try
+                {
+                    listener = new HttpListener();
+                    listener.Prefixes.Add($"http://+:{port}/hikvision/events/");
+                    listener.Start();
+
+                    cts = new CancellationTokenSource();
+                    isStopping = false;
+                    stopNotified = false;
+
+                    ThreadPool.QueueUserWorkItem(_ => ListenForEvents(cts.Token));
+
+                    AppendLog($"✅ Listener started on fallback port {port}");
+                    lblReaderStatus.ForeColor = Color.Green;
+                    lblReaderStatus.Text = $"Connected on port {port}";
+                    return;
+                }
+                catch
+                {
+                    AppendLog($"⚠️ Port {port} also unavailable, trying next...");
+                }
+            }
+
+            AppendLog("❌ No available ports found. Listener could not be started.");
+        }
+
+        private void CheckDBLocation()
+        {
+            try
+            {
+                // 📂 Define folder and file paths
+                string targetFolder = @"C:\SQLdb";
+                string sourceFile = Path.Combine(Application.StartupPath, "localbuffer.db");
+                string targetFile = Path.Combine(targetFolder, "localbuffer.db");
+
+                // 🗂 Ensure folder exists
+                if (!Directory.Exists(targetFolder))
+                {
+                    Directory.CreateDirectory(targetFolder);
+                    ShowToast("📂 SQLdb folder created.", Color.Blue);
+                }
+
+                // 📄 Check if localbuffer.db exists in target folder
+                if (!File.Exists(targetFile))
+                {
+                    if (File.Exists(sourceFile))
+                    {
+                        File.Copy(sourceFile, targetFile, true);
+                        ShowToast("✅ localbuffer.db copied to SQLdb folder.", Color.Green);
+                    }
+                    else
+                    {
+                        ShowToast("❌ Source localbuffer.db not found in application folder.", Color.Red);
+                        return;
+                    }
+                }
+                else
+                {
+                    ShowToast("ℹ️ localbuffer.db already exists in SQLdb folder. No copy performed.", Color.Blue);
+                }
+
+                // 🔑 Update connection string in settings
+                string newConnStr = $"Data Source={targetFile};Version=3;";
+                Properties.Settings.Default.LocalSQLiteCon = newConnStr;
+                Properties.Settings.Default.Save();
+
+                // 🖊 Notify user
+                ShowToast("🔄 Local SQLite connection updated and saved.", Color.Green);
+            }
+            catch (Exception ex)
+            {
+                ShowToast($"❌ Error during initialization: {ex.Message}", Color.Red);
+            }
+
+        }
+
+        private DateTime appStartTime;
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            CheckDBLocation();
+            txtLocalDB.Text = Properties.Settings.Default.LocalSQLiteCon;
+            string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ReaderSDK", "Configs");
+            txtCloudConnStr.Text = Properties.Settings.Default.SQLCon;
+            txtSiteID.Text = Properties.Settings.Default.SiteID.ToString();
+            // 🔑 Check the role from Session
+            //if (Session.CurrentUserRole == "Admin")
+            //{
+            //    // Allow access to TabPage1
+            //    tabPage1.Enabled = true;
+            //    tabPage2.Enabled = true;
+            //    tabPage4.Enabled = true;
+            //    txtCloudConnStr.Visible = true;
+            //    txtPasswordForm1.Visible = true;
+            //}
+            //else
+            //{
+            //    // Disable TabPage1 for non-admins
+            //    tabPage1.Enabled = false;
+            //    tabPage2.Enabled = false;
+            //    tabPage4.Enabled = false;
+            //    txtCloudConnStr.Visible = false;
+            //    txtPasswordForm1.Visible = false;
+            //}
+            if (!Directory.Exists(configPath))
+            {
+                MessageBox.Show($"Configuration directory not found: {configPath}");
+                return;
+            }
+            EnsureLocalBufferTableExists();
+            //Session Timer
+            string localConnStr = Properties.Settings.Default.LocalSQLiteCon;
+            //using (var conn = new SQLiteConnection(localConnStr))
+            //{
+            //    conn.Open();
+            //    var cmd = new SQLiteCommand("INSERT INTO SystemSession (StartTime) VALUES (@StartTime)", conn);
+            //    cmd.Parameters.AddWithValue("@StartTime", DateTime.Now);
+            //    cmd.ExecuteNonQuery();
+            //}
+
+            lvLocalTransactions.Columns.Clear();
+            lvLocalTransactions.View = View.Details;
+            lvLocalTransactions.FullRowSelect = true;
+
+            lvLocalTransactions.Columns.Add("Timestamp", 150);
+            lvLocalTransactions.Columns.Add("Reader ID", 100);
+            lvLocalTransactions.Columns.Add("Event Type", 100);
+            lvLocalTransactions.Columns.Add("Value", 120);
+            lvLocalTransactions.Columns.Add("Payload", 200);
+            lvLocalTransactions.Columns.Add("Emulated", 70);
+            lvLocalTransactions.Columns.Add("SiteId", 70);
+
+            LoadUnsyncedTransactions();
+
+            // Convert minutes from settings into milliseconds
+            syncTimer.Interval = Properties.Settings.Default.SyncIntervalMinutes * 60 * 1000;
+
+            syncTimer.Tick += SyncTimer_Tick;
+            syncTimer.Start();
+
+            InitLocalBuffer();
+            LoadLocalBufferGrid();
+            //ValidateReaderConfigs();
+            LoadDashboardCharts();
+            appStartTime = DateTime.Now;
+            RefreshUptimeChart();
+            // Use + to bind all interfaces
+            StartListener("http://+:8000/hikvision/events/");
+            lblSyncStatusDash.Text = "🔄 Sync not started";
+            lblLastSync.Text = "Last sync: —";
+            lblFailedCount.Text = "Failed: 0";
+            btnRetrySync.Text = "Retry Failed (0)";
+            btnRetrySync.Enabled = false;
+
+            try
+            {
+                var localService = new LocalBufferService(localConnStr);
+                var cloudService = new CloudSqlService(Properties.Settings.Default.SQLCon);
+
+                int localCount = localService.GetLocalTransactionCount();
+                int cloudCount = cloudService.GetCloudTransactionCount();
+
+                Log($"✅ Local buffer: {localCount} transactions", true);
+                Log($"✅ Cloud SQL: {cloudCount} transactions", true);
+            }
+            catch (Exception ex)
+            {
+                Log($"❌ Error accessing databases: {ex.Message}", false);
+            }
+
+            // Add Connect button column to reader grid
+            if (!dgvReaders.Columns.Contains("Connect"))
+            {
+                DataGridViewButtonColumn connectButton = new DataGridViewButtonColumn();
+                connectButton.Name = "Connect";
+                connectButton.HeaderText = "Connect";
+                connectButton.Text = "Connect";
+                connectButton.UseColumnTextForButtonValue = true;
+                dgvReaders.Columns.Add(connectButton);
+            }
+
+            LoadReaderGrid(); // Load readers from DB and bind to grid
+                              // Wire up the sync interval change event
+            nudSyncInterval.ValueChanged += nudSyncInterval_ValueChanged;
+            tabControl1.SelectedIndexChanged += tabControl1_SelectedIndexChanged;
+            
+            dgvReaders.CellContentClick += dgvReaders_CellContentClick;
+            //PopulateReaderGrid();
+            LoadUserCredentials();
+            //cmbSiteCode.Text = Properties.Settings.Default.SiteID.ToString();
+            cmbStatusFilter.SelectedIndexChanged += cmbStatusFilter_SelectedIndexChanged;
+        }
+
+        private void LoadUserCredentials()
+        {
+            try
+            {
+                // 🔑 Connect to local SQLite
+                string connStr = Properties.Settings.Default.LocalSQLiteCon;
+                using (var conn = new SQLiteConnection(connStr))
+                {
+                    conn.Open();
+
+                    // 🗄 Query for user credentials
+                    using (var cmd = new SQLiteCommand("SELECT Username, Password FROM Users WHERE Id = 1", conn))
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            txtUsernameForm1.Text = reader["Username"].ToString();
+                            txtPasswordForm1.Text = reader["Password"].ToString();
+
+                            Log("✅ Loaded user credentials into Form1.");
+                        }
+                        else
+                        {
+                            Log("⚠️ No user found with Id = 1.");
+                        }
+                    }
+                }
+            }
+            catch (SQLiteException sqlex)
+            {
+                Log($"❌ SQLite error while loading credentials: {sqlex.Message}");
+            }
+            catch (Exception ex)
+            {
+                Log($"❌ Unexpected error while loading credentials: {ex.Message}");
+            }
+        }
+
+
+
+        private void RefreshUptimeChart()
+        {
+            chartUptime.Series.Clear();
+            var uptimeSeries = new Series("Uptime") { ChartType = SeriesChartType.Line };
+
+            int totalMinutes = (int)(DateTime.Now - appStartTime).TotalMinutes;
+            for (int i = 0; i <= 60; i += 10)
+            {
+                uptimeSeries.Points.AddXY($"{i} min", Math.Min(i, totalMinutes));
+            }
+
+            chartUptime.Series.Add(uptimeSeries);
+            Log($"✅ Uptime chart refreshed with {uptimeSeries.Points.Count} points.", true);
+        }
+
+
+        private void LoadLocalBufferGrid()
+        {
+            string localConnStr = Properties.Settings.Default.LocalSQLiteCon;
+            lvLocalTransactions.Items.Clear();
+
+            using (var conn = new SQLiteConnection(localConnStr))
+            {
+                conn.Open();
+                var cmd = new SQLiteCommand(@"
+            SELECT PersonName,Timestamp, ReaderId, EventType, Value, PayloadRaw, IsEmulated, SiteId  
+            FROM ReaderEvents 
+            ORDER BY Timestamp DESC", conn);
+
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        var item = new ListViewItem(Convert.ToDateTime(reader["Timestamp"]).ToString("yyyy-MM-dd HH:mm:ss"));
+                        item.SubItems.Add(reader["ReaderId"].ToString());
+                        item.SubItems.Add(reader["EventType"].ToString());
+                        item.SubItems.Add(reader["Value"].ToString());
+                        item.SubItems.Add(reader["PayloadRaw"].ToString());
+                        item.SubItems.Add(Convert.ToInt32(reader["IsEmulated"]) == 1 ? "Yes" : "No");
+                        item.SubItems.Add(reader["SiteId"].ToString());
+                        lvLocalTransactions.Items.Add(item);
+                    }
+                }
+            }
+
+            Log($"📋 Loaded {lvLocalTransactions.Items.Count} transactions into lvLocalTransactions.");
+        }
+
+
+
+        //private void PopulateReaderGrid()
+        //{
+        //    dgvReaders.Columns.Clear();
+        //    //dgvReaders.Rows.Clear();
+
+        //    dgvReaders.AutoGenerateColumns = false;
+        //    dgvReaders.AllowUserToAddRows = false;
+
+        //    dgvReaders.Columns.Add("Make", "Make");
+        //    dgvReaders.Columns.Add("Model", "Model");
+        //    dgvReaders.Columns.Add("IPAddress", "IP Address");
+        //    dgvReaders.Columns.Add("Port", "Port");
+        //    dgvReaders.Columns.Add("Username", "Username");
+        //    dgvReaders.Columns.Add("Password", "Password");
+
+        //    var connectButton = new DataGridViewButtonColumn
+        //    {
+        //        Name = "Connect",
+        //        HeaderText = "Action",
+        //        Text = "Connect",
+        //        UseColumnTextForButtonValue = true
+        //    };
+        //    dgvReaders.Columns.Add(connectButton);
+
+        //    var readers = LoadReadersFromDatabase();
+        //    foreach (var r in readers)
+        //    {
+        //        dgvReaders.Rows.Add(r.Make, r.Model, r.IPAddress, r.Port, r.Username, r.Password);
+        //    }
+        //}
+
+
+        private void PushBufferToCloud()
+        {
+            //string connStr = Properties.Settings.Default.SQLCon;
+
+            //using (SqlConnection conn = new SqlConnection(connStr))
+            //{
+            //    conn.Open();
+
+            //    foreach (DataGridViewRow row in dgvLocalBuffer.Rows)
+            //    {
+            //        if (row.IsNewRow) continue;
+
+            //        string timestamp = row.Cells["Timestamp"].Value?.ToString();
+            //        string readerId = row.Cells["ReaderId"].Value?.ToString();
+            //        string eventType = row.Cells["EventType"].Value?.ToString();
+            //        string value = row.Cells["Value"].Value?.ToString();
+            //        string payload = row.Cells["PayloadRaw"].Value?.ToString();
+            //        string SiteId = row.Cells["SiteId"].Value?.ToString();
+            //        string query = @"
+            //    INSERT INTO ReaderEvents (Timestamp, ReaderId, EventType, Value, PayloadRaw,SiteId)
+            //    VALUES (@Timestamp, @ReaderId, @EventType, @Value, @PayloadRaw,@SiteId)";
+
+            //        using (SqlCommand cmd = new SqlCommand(query, conn))
+            //        {
+            //            cmd.Parameters.AddWithValue("@Timestamp", timestamp);
+            //            cmd.Parameters.AddWithValue("@ReaderId", readerId);
+            //            cmd.Parameters.AddWithValue("@EventType", eventType ?? "");
+            //            cmd.Parameters.AddWithValue("@Value", value ?? "");
+            //            cmd.Parameters.AddWithValue("@PayloadRaw", payload ?? "");
+            //            cmd.Parameters.AddWithValue("@SiteId", SiteId ?? "");
+            //            cmd.ExecuteNonQuery();
+            //        }
+            //    }
+
+            //    Log("☁️ Cloud sync complete.");
+            //}
+        }
+
+        public List<Reader> LoadReadersFromDatabase()
+        {
+            // 🗄 Prepare list to hold readers
+            var readers = new List<Reader>();
+
+            // 🔑 Connection string from settings
+            string connStr = Properties.Settings.Default.SQLCon;
+
+            try
+            {
+                using (var conn = new SqlConnection(connStr))
+                {
+                    conn.Open();
+
+                    // 🎯 Only load readers for the current SiteId
+                    var cmd = new SqlCommand(@"
+                SELECT Id, Make, Model, IPAddress, Port, LastSync, Username, Password, SiteId  
+                FROM Readers
+                WHERE SiteId = @SiteId", conn);
+
+                    cmd.Parameters.AddWithValue("@SiteId", Properties.Settings.Default.SiteID);
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        // 🧹 Clear comboBox before adding new items
+                        cmdIPEnrol.Items.Clear();
+
+                        while (reader.Read())
+                        {
+                            // 🧩 Build Reader object
+                            var r = new Reader
+                            {
+                                Id = reader.GetInt32(0),
+                                Make = reader.IsDBNull(1) ? "" : reader.GetString(1),
+                                Model = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                                IPAddress = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                                Port = reader.IsDBNull(4) ? "" : reader.GetValue(4).ToString(),
+                                LastSync = reader.IsDBNull(5) ? DateTime.MinValue : reader.GetDateTime(5),
+                                Username = reader.IsDBNull(6) ? "" : reader.GetString(6),
+                                Password = reader.IsDBNull(7) ? "" : reader.GetString(7),
+                                SiteId = reader.IsDBNull(8) ? "" : reader.GetValue(8).ToString()
+                            };
+
+                            // 🔍 Determine status based on listener state
+                            if (listener != null && listener.IsListening)
+                            {
+                                r.Status = "Connected";
+                                r.ConnectAction = "Disconnect";
+                            }
+                            else
+                            {
+                                r.Status = "Disconnected";
+                                r.ConnectAction = "Connect";
+                            }
+
+                            // ➕ Add to list
+                            readers.Add(r);
+
+                            // ➕ Also add IP to comboBox
+                            if (!string.IsNullOrEmpty(r.IPAddress))
+                            {
+                                cmdIPEnrol.Items.Add(r.IPAddress);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"❌ Error loading readers: {ex.Message}");
+            }
+
+            return readers;
+        }
+
+
+
+        private void LoadReaderGrid()
+        {
+            var readers = LoadReadersFromDatabase();
+
+            dgvReaders.DataSource = null;
+            dgvReaders.DataSource = readers;
+            dgvReaders.Refresh(); // Force UI update
+
+            bool hasRows = dgvReaders.Rows.Count > 0;
+            btnConnectReader1.Visible = !hasRows;
+            btnSaveReader.Visible = !hasRows;
+        }
+
+        public class Reader
+        {
+            public int Id { get; set; }
+            public string Make { get; set; }
+            public string Model { get; set; }
+            public string IPAddress { get; set; }
+            public string Port { get; set; }
+            public DateTime LastSync { get; set; }
+            public string Username { get; set; }
+            public string Password { get; set; }
+            public string Status { get; set; }
+            public string ConnectAction { get; set; }
+            public string SiteId { get; set; }
+        }
+
+        private int ConnectToReader(string ipAddress, int port, string username, string password)
+        {
+            try
+            {
+                HikvisionInterop.NET_DVR_Init();
+
+                var deviceInfo = new NET_DVR_DEVICEINFO_V30();
+                int userId = HikvisionInterop.NET_DVR_Login_V30(ipAddress, port, username, password, ref deviceInfo);
+
+                if (userId < 0)
+                {
+                    Log($"❌ Failed to connect to reader at {ipAddress}:{port} — login returned {userId}", false);
+                    return -1;
+                }
+
+                Log($"✅ Connected to reader at {ipAddress}:{port} as {username}", true);
+                return userId;
+            }
+            catch (Exception ex)
+            {
+                Log($"❌ Exception during reader connection to {ipAddress}:{port}: {ex.Message}", false);
+                return -1;
+            }
+        }
+
+
+        private void DashboardRefreshTimer_Tick(object sender, EventArgs e)
+        {
+            LoadDashboardCharts(); // Already wired to pull from cloud SQL
+        }
+
+        private void ValidateReaderConfigs()
+        {
+            string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ReaderSDK", "Configs");
+            if (!Directory.Exists(configPath))
+            {
+                Log("❌ Config folder not found.", false);
+                return;
+            }
+
+            var files = Directory.GetFiles(configPath, "*.json");
+            if (files.Length == 0)
+            {
+                Log("⚠️ No config files found.", false);
+                return;
+            }
+
+            foreach (var file in files)
+            {
+                try
+                {
+                    string json = File.ReadAllText(file);
+                    var config = JsonConvert.DeserializeObject<ReaderConfig>(json);
+
+                    if (config == null)
+                    {
+                        Log($"❌ Invalid JSON: {Path.GetFileName(file)}", false);
+                        continue;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(config.model))
+                    {
+                        Log($"⚠️ Missing model name in: {Path.GetFileName(file)}", false);
+                    }
+
+                    if (config.commands == null || config.commands.Count == 0)
+                    {
+                        Log($"⚠️ No commands defined in: {Path.GetFileName(file)}", false);
+                    }
+                    else
+                    {
+                        var requiredKeys = new[] { "read", "reset", "status", "capture", "verify" };
+                        foreach (var key in requiredKeys)
+                        {
+                            if (!config.commands.ContainsKey(key))
+                            {
+                                Log($"⚠️ Missing '{key}' command in: {config.model}", false);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"❌ Error parsing {Path.GetFileName(file)}: {ex.Message}", false);
+                }
+            }
+
+            Log("✅ Config validation complete.", true);
+        }
+
+
+        private void InitLocalBuffer()
+        {
+            string dbFolder = Path.Combine(Application.StartupPath, "SQLdb");
+            string dbPath = Path.Combine(dbFolder, "localbuffer.db");
+
+            // Ensure folder exists
+            if (!Directory.Exists(dbFolder))
+            {
+                Directory.CreateDirectory(dbFolder);
+                Log($"📁 Created folder: {dbFolder}");
+            }
+
+            // Create DB file if missing
+            if (!File.Exists(dbPath))
+            {
+                File.Create(dbPath).Dispose(); // Corrected: Use File.Create to create the database file
+                Log($"🆕 Created localbuffer.db at: {dbPath}");
+            }
+            string localConnStr = Properties.Settings.Default.LocalSQLiteCon;
+            // Create schema if missing
+            using (var conn = new SQLiteConnection(localConnStr))
+            {
+                try
+                {
+                    conn.Open();
+
+                    string createSql = @"
+                    CREATE TABLE IF NOT EXISTS Transactions (
+                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ReaderId TEXT,
+                        Timestamp TEXT,
+                        Payload TEXT,
+                        Synced INTEGER DEFAULT 0,
+                        SiteId TEXT
+                    )";
+
+                    new SQLiteCommand(createSql, conn).ExecuteNonQuery();
+                    Log("✅ Transactions table verified.");
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"❌ Failed to initialize local buffer: {ex.Message}");
+                }
+            }
+        }
+
+
+        private void nudSyncInterval_ValueChanged(object sender, EventArgs e)
+        {
+            syncTimer.Interval = (int)nudSyncInterval.Value * 60 * 1000;
+            Log($"🔁 Sync interval updated to {nudSyncInterval.Value} minute(s).");
+        }
+
+        private volatile bool syncInProgress = false;
+        private async void SyncTimer_Tick(object sender, EventArgs e)
+        {
+            if (syncInProgress) return;
+            syncInProgress = true;
+            syncTimer.Stop();
+            try
+            {
+                await Task.Run(() => SyncToCloud()); // run heavy work off UI thread
+            }
+            finally
+            {
+                syncInProgress = false;
+                try { syncTimer.Start(); } catch { /* log */ }
+            }
+        }
+
+        private void LoadUnsyncedTransactions()
+        {
+            lvLocalTransactions.Items.Clear();
+            string dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SQLdb", "localbuffer.db");
+            string localConnStr = Properties.Settings.Default.LocalSQLiteCon;
+
+            using (SQLiteConnection conn = new SQLiteConnection(localConnStr))
+            {
+                conn.Open();
+                var cmd = new SQLiteCommand("SELECT Id, ReaderId, Timestamp, Payload FROM Transactions WHERE Synced = 0", conn);
+                var reader = cmd.ExecuteReader();
+
+                while (reader.Read())
+                {
+                    var item = new ListViewItem(reader["Id"].ToString());
+                    item.SubItems.Add(reader["ReaderId"].ToString());
+                    item.SubItems.Add(reader["Timestamp"].ToString());
+                    item.SubItems.Add(reader["Payload"].ToString());
+                    lvLocalTransactions.Items.Add(item);
+                }
+            }
+        }
+
+        public class ReaderConfig
+        {
+            public string make { get; set; }
+            public string model { get; set; }
+            public string ipAddress { get; set; }
+            public int port { get; set; }
+            public string username { get; set; }
+            public string password { get; set; }
+            public Dictionary<string, string> commands { get; set; }
+        }
+
+        private string ExecuteCommand(string command)
+        {
+            // Replace with actual SDK call or serial/network logic
+            return $"[Simulated response for {command}]";
+        }
+
+        private void Log(string message, bool isSuccess = true)
+        {
+            if (txtLogConsole.InvokeRequired)
+            {
+                txtLogConsole.Invoke(new Action(() => Log(message, isSuccess)));
+                return;
+            }
+
+            Color color = isSuccess ? Color.LightGreen : Color.Salmon;
+
+            txtLogConsole.SelectionStart = txtLogConsole.TextLength;
+            txtLogConsole.SelectionLength = 0;
+            txtLogConsole.SelectionColor = color;
+
+            txtLogConsole.AppendText($"{DateTime.Now:HH:mm:ss} - {message}{Environment.NewLine}");
+
+            txtLogConsole.SelectionColor = txtLogConsole.ForeColor; // Reset to default
+            txtLogConsole.ScrollToCaret(); // Auto-scroll to bottom
+        }
+
+
+        private void btnSaveCloudConn_Click(object sender, EventArgs e)
+        {
+            Properties.Settings.Default.SQLCon = txtCloudConnStr.Text;
+            Properties.Settings.Default.Save();
+            MessageBox.Show("Cloud connection string saved.");
+        }
+
+        private bool PushToCloud(string readerId, string payload)
+        {
+            try
+            {
+                // Replace with actual SQL insert or API call
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void SaveSyncInterval()
+        {
+            int syncMinutes = (int)nudSyncInterval.Value;
+            string connStr = Properties.Settings.Default.SQLCon;
+
+            using (var conn = new SqlConnection(connStr))
+            {
+                conn.Open();
+
+                // Ensure Settings table exists
+                var ensureTableCmd = new SqlCommand(@"
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'Settings')
+            BEGIN
+                CREATE TABLE Settings (
+                    Id INT PRIMARY KEY IDENTITY,
+                    SyncIntervalMinutes INT
+                )
+            END", conn);
+                ensureTableCmd.ExecuteNonQuery();
+
+                // Upsert logic
+                var cmd = new SqlCommand(@"
+            IF EXISTS (SELECT 1 FROM Settings)
+                UPDATE Settings SET SyncIntervalMinutes = @minutes
+            ELSE
+                INSERT INTO Settings (SyncIntervalMinutes) VALUES (@minutes)", conn);
+
+                cmd.Parameters.AddWithValue("@minutes", syncMinutes);
+                cmd.ExecuteNonQuery();
+            }
+
+            Log($"💾 Sync interval saved: {syncMinutes} minute(s)", true);
+        }
+
+        private void btnManualSync_Click(object sender, EventArgs e)
+        {
+            int syncedCount = 0;
+            string localConnStr = Properties.Settings.Default.LocalSQLiteCon;
+            using (var conn = new SQLiteConnection(localConnStr))
+            {
+                conn.Open();
+
+                // Count total unsynced transactions
+                var countCmd = new SQLiteCommand("SELECT COUNT(*) FROM Transactions WHERE Synced = 0", conn);
+                int total = Convert.ToInt32(countCmd.ExecuteScalar());
+
+                progressSync.Value = 0;
+                progressSync.Maximum = total > 0 ? total : 1;
+                progressSync.Visible = true;
+
+                var cmd = new SQLiteCommand("SELECT Id, ReaderId, Timestamp, Payload FROM Transactions WHERE Synced = 0", conn);
+                var reader = cmd.ExecuteReader();
+
+                int processed = 0;
+
+                while (reader.Read())
+                {
+                    int id = Convert.ToInt32(reader["Id"]);
+                    string readerId = reader["ReaderId"].ToString();
+                    string payload = reader["Payload"].ToString();
+
+                    bool success = PushToCloud(readerId, payload);
+                    if (success)
+                    {
+                        var updateCmd = new SQLiteCommand("UPDATE Transactions SET Synced = 1 WHERE Id = @id", conn);
+                        updateCmd.Parameters.AddWithValue("@id", id);
+                        updateCmd.ExecuteNonQuery();
+                        syncedCount++;
+                    }
+
+                    processed++;
+                    progressSync.Value = Math.Min(processed, progressSync.Maximum);
+                }
+            }
+
+            lblSyncStatus.Text = $"✅ Synced {syncedCount} transaction(s)";
+            progressSync.Value = 0;
+            progressSync.Visible = false;
+            LoadUnsyncedTransactions();
+        }
+
+        private void btnRefreshDashboard_Click(object sender, EventArgs e)
+        {
+            LoadDashboardCharts();
+        }
+
+        private void dashboardRefreshTimer_Tick_1(object sender, EventArgs e)
+        {
+            LoadDashboardCharts();
+            SyncToCloud();         // Push new entries
+            RetryFailedSyncs();    // Retry failed ones
+        }
+
+        private void syncTimer_Tick_1(object sender, EventArgs e)
+        {
+            try
+            {
+                LoadLocalBufferGrid();
+                PushLocalBufferToCloud();
+                lblSyncStatusDash.Text = $"☁️ Cloud sync OK at {DateTime.Now:HH:mm:ss}";
+                lblSyncStatusDash.ForeColor = Color.Blue;
+                LoadLocalBufferGrid();
+                RetryFailedSyncs();
+            }
+            catch (Exception ex)
+            {
+                lblSyncStatusDash.Text = $"❌ Cloud sync error: {ex.Message}";
+                lblSyncStatusDash.ForeColor = Color.Red;
+                Log($"❌ Cloud sync error: {ex.Message}", false);
+            }
+        }
+
+        //private void UpdateGridOrUI(ReaderData data)
+        //{
+        //    if (data == null)
+        //    {
+        //        Log("⚠️ Tried to update grid with null data.");
+        //        return;
+        //    }
+
+        //    // Add a new row to the grid
+        //    dgvLocalBuffer.Rows.Add(
+        //            data.Timestamp.ToString("yyyy-MM-dd HH:mm:ss"),
+        //            data.ReaderId,
+        //            data.EventType,
+        //            data.Value ?? "",         // If you include Value
+        //            data.PayloadRaw ?? "",     // If you include PayloadRaw
+        //            data.SiteId
+        //        );
+
+        //    // Optional: scroll to the latest row
+        //    int lastRowIndex = dgvLocalBuffer.Rows.Count - 1;
+        //    if (lastRowIndex >= 0)
+        //    {
+        //        dgvLocalBuffer.FirstDisplayedScrollingRowIndex = lastRowIndex;
+        //        if (data.IsEmulated)
+        //            dgvLocalBuffer.Rows[lastRowIndex].DefaultCellStyle.BackColor = Color.LightYellow;
+        //    }
+
+        //    // Optional: highlight emulated data
+        //    if (data.ReaderId.StartsWith("EMULATOR"))
+        //    {
+        //        dgvLocalBuffer.Rows[lastRowIndex].DefaultCellStyle.BackColor = Color.LightYellow;
+        //    }
+
+        //    Log($"🖥️ UI updated with: {data.ReaderId} | {data.Value}");
+        //}
+
+
+        // In-memory buffer (you can move this to a class-level field)
+        private List<ReaderData> localBuffer = new List<ReaderData>();
+
+        private void SaveToLocalBuffer(ReaderData data)
+        {
+            try
+            {
+                if (data == null)
+                {
+                    Log("⚠️ Attempted to save null data to buffer.");
+                    return;
+                }
+                string localConnStr = Properties.Settings.Default.LocalSQLiteCon;
+
+                using (var conn = new SQLiteConnection(localConnStr))
+                {
+                    conn.Open();
+
+                    string query = @"
+            INSERT INTO ReaderEvents (
+                ReaderId, Timestamp, EventType, Value, PayloadRaw,
+                CardNumber, PersonName, DeviceIP, IsEmulated, SiteId 
+            )
+            VALUES (
+                @ReaderId, @Timestamp, @EventType, @Value, @PayloadRaw,
+                @CardNumber, @PersonName, @DeviceIP, @IsEmulated, @SiteId 
+            )";
+
+                    using (var cmd = new SQLiteCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@ReaderId", data.ReaderId);
+                        cmd.Parameters.AddWithValue("@Timestamp", data.Timestamp);
+                        cmd.Parameters.AddWithValue("@EventType", data.EventType);
+                        cmd.Parameters.AddWithValue("@Value", data.Value ?? "");
+                        cmd.Parameters.AddWithValue("@PayloadRaw", data.PayloadRaw ?? "");
+                        cmd.Parameters.AddWithValue("@CardNumber", data.CardNumber ?? "");
+                        cmd.Parameters.AddWithValue("@PersonName", data.PersonName ?? "");
+                        cmd.Parameters.AddWithValue("@DeviceIP", data.DeviceIP ?? "");
+                        cmd.Parameters.AddWithValue("@IsEmulated", data.IsEmulated ? 1 : 0);
+                        cmd.Parameters.AddWithValue("@SiteId", Properties.Settings.Default.SiteID);
+                        cmd.ExecuteNonQuery();
+                    }
+
+                    Log($"📥 Saved to localbuffer.db: {data.ReaderId} | {data.EventType} | {data.Value}");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"❌ Error saving to local buffer: {ex.ToString()}");
+            }
+        }
+
+        private void PushLocalBufferToCloud()
+        {
+            string localConnStr = Properties.Settings.Default.LocalSQLiteCon;
+            string cloudConnStr = Properties.Settings.Default.SQLCon;
+
+            using (var localConn = new SQLiteConnection(localConnStr))
+            using (var cloudConn = new SqlConnection(cloudConnStr))
+            {
+                localConn.Open();
+                cloudConn.Open();
+
+                string selectQuery = "SELECT * FROM ReaderEvents";
+                using (var selectCmd = new SQLiteCommand(selectQuery, localConn))
+                using (var reader = selectCmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        // ⚡ Wrap each row sync in a transaction
+                        using (var localTx = localConn.BeginTransaction())
+                        using (var cloudTx = cloudConn.BeginTransaction())
+                        {
+                            try
+                            {
+                                // ☁️ Insert into cloud ReaderEvents (SQL Server)
+                                string cloudInsert = @"
+                            INSERT INTO ReaderEvents (
+                                ReaderId, Timestamp, EventType, Value, PayloadRaw,
+                                CardNumber, PersonName, DeviceIP, IsEmulated, SiteId
+                            )
+                            SELECT @ReaderId, @Timestamp, @EventType, @Value, @PayloadRaw,
+                                   @CardNumber, @PersonName, @DeviceIP, @IsEmulated, @SiteId
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM ReaderEvents
+                                WHERE ReaderId = @ReaderId
+                                  AND Timestamp = @Timestamp
+                                  AND EventType = @EventType
+                                  AND Value = @Value
+                            )";
+
+                                using (var cloudCmd = new SqlCommand(cloudInsert, cloudConn, cloudTx))
+                                {
+                                    cloudCmd.Parameters.AddWithValue("@ReaderId", reader["ReaderId"]);
+                                    cloudCmd.Parameters.AddWithValue("@Timestamp", reader["Timestamp"]);
+                                    cloudCmd.Parameters.AddWithValue("@EventType", reader["EventType"]);
+                                    cloudCmd.Parameters.AddWithValue("@Value", reader["Value"]);
+                                    cloudCmd.Parameters.AddWithValue("@PayloadRaw", reader["PayloadRaw"]);
+                                    cloudCmd.Parameters.AddWithValue("@CardNumber", reader["CardNumber"]);
+                                    cloudCmd.Parameters.AddWithValue("@PersonName", reader["PersonName"]);
+                                    cloudCmd.Parameters.AddWithValue("@DeviceIP", reader["DeviceIP"]);
+                                    cloudCmd.Parameters.AddWithValue("@IsEmulated", reader["IsEmulated"]);
+                                    cloudCmd.Parameters.AddWithValue("@SiteId", Properties.Settings.Default.SiteID);
+                                    cloudCmd.ExecuteNonQuery();
+                                }
+
+                                // 📦 Archive into local ReaderEventsArchive (SQLite)
+                                string archiveInsert = @"
+                            INSERT OR IGNORE INTO ReaderEventsArchive (
+                                ReaderId, Timestamp, EventType, Value, PayloadRaw,
+                                CardNumber, PersonName, DeviceIP, IsEmulated, SiteId
+                            )
+                            VALUES (
+                                @ReaderId, @Timestamp, @EventType, @Value, @PayloadRaw,
+                                @CardNumber, @PersonName, @DeviceIP, @IsEmulated, @SiteId
+                            )";
+
+                                using (var archiveCmd = new SQLiteCommand(archiveInsert, localConn, localTx))
+                                {
+                                    archiveCmd.Parameters.AddWithValue("@ReaderId", reader["ReaderId"]);
+                                    archiveCmd.Parameters.AddWithValue("@Timestamp", reader["Timestamp"]);
+                                    archiveCmd.Parameters.AddWithValue("@EventType", reader["EventType"]);
+                                    archiveCmd.Parameters.AddWithValue("@Value", reader["Value"]);
+                                    archiveCmd.Parameters.AddWithValue("@PayloadRaw", reader["PayloadRaw"]);
+                                    archiveCmd.Parameters.AddWithValue("@CardNumber", reader["CardNumber"]);
+                                    archiveCmd.Parameters.AddWithValue("@PersonName", reader["PersonName"]);
+                                    archiveCmd.Parameters.AddWithValue("@DeviceIP", reader["DeviceIP"]);
+                                    archiveCmd.Parameters.AddWithValue("@IsEmulated", reader["IsEmulated"]);
+                                    archiveCmd.Parameters.AddWithValue("@SiteId", Properties.Settings.Default.SiteID);
+                                    archiveCmd.ExecuteNonQuery();
+                                }
+
+                                // 🗑 Delete from local ReaderEvents
+                                string deleteQuery = "DELETE FROM ReaderEvents WHERE Id = @Id";
+                                using (var deleteCmd = new SQLiteCommand(deleteQuery, localConn, localTx))
+                                {
+                                    deleteCmd.Parameters.AddWithValue("@Id", reader["Id"]);
+                                    deleteCmd.ExecuteNonQuery();
+                                }
+
+                                // ✅ Commit both transactions
+                                cloudTx.Commit();
+                                localTx.Commit();
+
+                                Log($"☁️ Synced, archived & deleted: {reader["ReaderId"]} | {reader["EventType"]} | {reader["Value"]}");
+                                LogSyncSuccess(reader["ReaderId"].ToString(), reader["EventType"].ToString(), "Synced with cloud successfully");
+                            }
+                            catch (Exception ex)
+                            {
+                                // ❌ Rollback if anything fails
+                                try { cloudTx.Rollback(); } catch { }
+                                try { localTx.Rollback(); } catch { }
+
+                                Log($"❌ Sync failed for ID {reader["Id"]}: {ex.Message}", false);
+                                LogSyncFailure(reader["CardNumber"].ToString(), reader["PayloadRaw"].ToString(), ex.ToString());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+
+
+
+        private void btnRetrySync_Click(object sender, EventArgs e)
+        {
+            RetryFailedSyncs();
+        }
+
+        private void dgvReaders_CellClick(object sender, DataGridViewCellEventArgs e)
+        {
+            
+        }
+
+        //private TcpListener listener;
+        //private CancellationTokenSource cts;
+
+        //public void StartListening(int port)
+        //{
+        //    cts = new CancellationTokenSource();
+        //    //listener = new TcpListener(IPAddress.Any, port);
+        //    listener.Start();
+        //    Log($"📡 Listening for ZKTeco events on port {port}");
+
+        //    Task.Run(() =>
+        //    {
+        //        while (!cts.Token.IsCancellationRequested)
+        //        {
+        //            try
+        //            {
+        //                if (listener.Pending())
+        //                {
+        //                    var client = listener.AcceptTcpClient();
+        //                    var stream = client.GetStream();
+        //                    var reader = new StreamReader(stream);
+
+        //                    string data = reader.ReadToEnd();
+        //                    Log($"📥 Received data: {data}");
+
+        //                    client.Close();
+        //                }
+        //                else
+        //                {
+        //                    Thread.Sleep(100); // avoid busy loop
+        //                }
+        //            }
+        //            catch (Exception ex)
+        //            {
+        //                Log($"⚠️ Listener error: {ex.Message}");
+        //            }
+        //        }
+
+        //        Log("🛑 Listener stopped.");
+        //    }, cts.Token);
+        //}
+
+        public void StopListening()
+        {
+            try
+            {
+                cts?.Cancel();
+                listener?.Stop();
+                Log("🔌 Disconnected from reader.");
+            }
+            catch (Exception ex)
+            {
+                Log($"⚠️ Error during disconnect: {ex.Message}");
+            }
+        }
+
+        public async Task<bool> TestHikvisionConnection_WebRequestAsync(string deviceIp, int port, string username, string password)
+        {
+            string url = $"https://{deviceIp}:{port}/ISAPI/System/status";
+
+            try
+            {
+                using (var handler = new HttpClientHandler())
+                {
+                    // Hikvision devices use self-signed certs → ignore SSL errors
+                    handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
+
+                    using (var client = new HttpClient(handler))
+                    {
+                        // Basic Auth header
+                        string authInfo = Convert.ToBase64String(System.Text.Encoding.ASCII.GetBytes($"{username}:{password}"));
+                        client.DefaultRequestHeaders.Authorization =
+                            new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authInfo);
+
+                        // Send GET request
+                        var response = await client.GetAsync(url);
+
+                        if (response.IsSuccessStatusCode)
+                        {
+                            string result = await response.Content.ReadAsStringAsync();
+                            Console.WriteLine("✅ Connected. Payload: " + result);
+                            return true;
+                        }
+                        else
+                        {
+                            Console.WriteLine($"❌ Connection failed. Status: {response.StatusCode}");
+                            return false;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("❌ Connection failed: " + ex.Message);
+                return false;
+            }
+        }
+
+
+
+        // Thread-safe UI append helper; falls back to file log if the control isn't available.
+        private void AppendLog(string message)
+        {
+            string line = $"{DateTime.Now:HH:mm:ss} {message}";
+            try
+            {
+                if (txtLogConsole != null && !txtLogConsole.IsDisposed && txtLogConsole.IsHandleCreated)
+                {
+                    txtLogConsole.BeginInvoke(new Action(() =>
+                    {
+                        try
+                        {
+                            lstEvents.Items.Add(line);
+                        }
+                        catch
+                        {
+                            // ignore UI errors
+                        }
+                    }));
+                }
+                else
+                {
+                    DebugLog("lstEvents unavailable, writing to file: " + line);
+                    DebugLog(line);
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"AppendLog error: {ex}");
+            }
+        }
+
+        // Simple file-based debug log for diagnostics
+        private void DebugLog(string text)
+        {
+            try
+            {
+                lock (fileLock)
+                {
+                    File.AppendAllText(logPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {text}{Environment.NewLine}");
+                }
+            }
+            catch
+            {
+                // best-effort logging only
+            }
+        }
+        private string currentPrefix;
+        private void StartListener(string prefix)
+        {
+            // 🚫 Prevent duplicate listeners
+            if (listener != null && listener.IsListening)
+            {
+                AppendLog("ℹ️ Listener already running, skipping start.");
+                return;
+            }
+
+            currentPrefix = prefix; // <-- Add this line
+
+            // 1️⃣ Check SQLite availability
+            try
+            {
+                string localConnStr = Properties.Settings.Default.LocalSQLiteCon;
+                using (var conn = new SQLiteConnection(localConnStr))
+                {
+                    conn.Open();
+                    AppendLog("✅ SQLite database available.");
+                    ShowToast("✅ SQLite database available.", Color.LightGreen);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"❌ SQLite database unavailable: {ex.Message}");
+                this.BackColor = Color.Yellow;
+                ShowToast($"❌ SQLite database unavailable: {ex.Message}", Color.Red);
+                return; // stop further checks if local DB is down
+            }
+
+            // 2️⃣ Check Cloud SQL availability
+            try
+            {
+                string cloudConnStr = Properties.Settings.Default.SQLCon;
+                using (var cloudConn = new SqlConnection(cloudConnStr))
+                {
+                    cloudConn.Open();
+                    AppendLog("✅ Cloud SQL database available.");
+                    ShowToast("✅ Cloud SQL database available.", Color.LightGreen);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"❌ Cloud SQL database unavailable: {ex.Message}");
+                this.BackColor = Color.Yellow;
+                ShowToast($"❌ Cloud SQL database unavailable: {ex.Message}", Color.Red);
+                return; // stop further checks if cloud DB is down
+            }
+
+            // 3️⃣ Start Listener
+            try
+            {
+                // 🔧 Initialize listener
+                listener = new HttpListener();
+                listener.Prefixes.Add(prefix);
+
+                // 🚀 Start listener
+                listener.Start();
+
+                // 🧩 Reset flags
+                cts = new CancellationTokenSource();
+                isStopping = false;
+                stopNotified = false;
+
+                // 🎧 Begin listening
+                ThreadPool.QueueUserWorkItem(_ => ListenForEvents(cts.Token));
+
+                // ✅ Update UI
+                AppendLog($"✅ Listener started on {prefix}");
+                lblReaderStatus.ForeColor = Color.Green;
+                lblReaderStatus.Text = "Connected successfully...";
+                dgvReaders.RowsDefaultCellStyle.BackColor = Color.LightGreen;
+
+                // 🖥 Update form title and background
+                this.Text = $"{this.Text} - All readers have been connected and are awaiting data";
+                this.BackColor = Color.LightGreen;   // form background goes green
+            }
+            catch (HttpListenerException hlex)
+            {
+                AppendLog($"❌ Listener failed: {hlex.Message}");
+                this.BackColor = Color.Yellow;
+
+                if (hlex.ErrorCode == 5)
+                {
+                    AppendLog("⚠️ Try running the app with admin rights or reserve the URL with netsh.");
+                }
+                else if (hlex.ErrorCode == 32)
+                {
+                    AppendLog("⚠️ Port 8000 is already in use. Choose another port or stop the conflicting service.");
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"❌ Unexpected error starting listener: {ex.Message}");
+                this.BackColor = Color.Yellow;
+            }
+        }
+
+
+
+
+        private async void btnConnectReader1_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                listener = new HttpListener();
+                // IMPORTANT: must end with a trailing slash
+                listener.Prefixes.Add("http://+:8000/hikvision/events/");
+                listener.Start();
+
+                cts = new CancellationTokenSource();
+                isStopping = false;
+                stopNotified = false;
+                ThreadPool.QueueUserWorkItem(_ => ListenForEvents(cts.Token));
+
+                AppendLog("✅ Listener started on http://+:8000/hikvision/events/");
+                lblReaderStatus.ForeColor = Color.Green;
+                lblReaderStatus.Text = "Connected successfully...";
+            }
+            catch (Exception ex)
+            {
+                lstEvents.Items.Add($"❌ Error starting listener: {ex.Message}");
+            }
+        }
+
+        private void ListenForEvents(CancellationToken token)
+        {
+            try
+            {
+                while (!isStopping && listener != null && listener.IsListening && !token.IsCancellationRequested)
+                {
+                    HttpListenerContext context = null;
+                    try
+                    {
+                        context = listener.GetContext();
+                        if (isStopping) // shutdown requested — stop processing further requests
+                        {
+                            try { context.Response.StatusCode = 503; context.Response.Close(); } catch { }
+                            break;
+                        }
+
+                        var request = context.Request;
+
+                        using (var reader = new StreamReader(request.InputStream, request.ContentEncoding))
+                        {
+                            string payload = reader.ReadToEnd();
+
+                            // Log raw payload to file for diagnostics
+                            DebugLog($"Received payload: {payload}");
+
+                            // If shutdown started while reading, drop the payload
+                            if (isStopping) { try { context.Response.Close(); } catch { } break; }
+
+                            // Use BeginInvoke so the listener thread cannot deadlock waiting on the UI thread.
+                            try
+                            {
+                                if (!isStopping)
+                                {
+                                    BeginInvoke(new Action(() => ProcessPayload(payload)));
+                                }
+                            }
+                            catch (ObjectDisposedException)
+                            {
+                                // UI is disposed; stop processing
+                                DebugLog("UI disposed while trying to BeginInvoke ProcessPayload.");
+                                break;
+                            }
+                        }
+
+                        try
+                        {
+                            context.Response.StatusCode = 200;
+                            context.Response.Close();
+                        }
+                        catch { /* ignore response close errors */ }
+                    }
+                    catch (HttpListenerException)
+                    {
+                        // Expected when listener is stopped — notify only once
+                        if (!isStopping)
+                        {
+                            try { BeginInvoke(new Action(() => NotifyStoppedOnce("ℹ️ Listener stopped."))); } catch { }
+                        }
+                        break;
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // Listener disposed while waiting — treat as intentional shutdown
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        // Only log unexpected errors when not shutting down
+                        DebugLog($"Listener loop error: {ex}");
+                        if (!isStopping)
+                        {
+                            try { BeginInvoke(new Action(() => AppendLog($"❌ Listener error: {ex.Message}"))); } catch { }
+                        }
+                    }
+                }
+            }
+            catch { /* swallow all exceptions here */ }
+            finally
+            {
+                if (!isStopping)
+                {
+                    // schedule a restart on threadpool with small delay
+                    Task.Delay(1000).ContinueWith(_ => 
+                    {
+                        if (!isStopping) StartListener(currentPrefix);
+                    });
+                }
+            }
+        }
+
+        // Adds a single notification to the listbox (thread-safe)
+        private void NotifyStoppedOnce(string message)
+        {
+            lock (stopLock)
+            {
+                if (stopNotified) return;
+                stopNotified = true;
+            }
+
+            AppendLog(message);
+        }
+
+        private void ProcessPayload(string payload)
+        {
+            // 🚫 Exit early if stopping or payload is empty
+            if (isStopping || string.IsNullOrWhiteSpace(payload))
+                return;
+
+            try
+            {
+                // 🔍 Extract JSON portion from MIME payload
+                string[] parts = payload.Split(
+                    new string[] { "--MIME_boundary" },
+                    StringSplitOptions.RemoveEmptyEntries
+                );
+
+                string jsonPart = null;
+
+                foreach (var part in parts)
+                {
+                    if (part.Contains("application/json"))
+                    {
+                        int jsonStart = part.IndexOf('{');
+                        int jsonEnd = part.LastIndexOf('}');
+
+                        if (jsonStart != -1 && jsonEnd != -1)
+                        {
+                            jsonPart = part.Substring(jsonStart, jsonEnd - jsonStart + 1);
+                            break;
+                        }
+                    }
+                }
+
+                if (string.IsNullOrEmpty(jsonPart))
+                    return;
+
+                // 📦 Parse JSON
+                using (JsonDocument doc = JsonDocument.Parse(jsonPart))
+                {
+                    var root = doc.RootElement;
+
+                    // ⏱ Extract timestamp
+                    string dateTimeStr = root.GetProperty("dateTime").GetString();
+                    DateTime eventTime = DateTime.Parse(dateTimeStr);
+
+                    // 🎫 Extract AccessControllerEvent details
+                    var accessEvent = root.GetProperty("AccessControllerEvent");
+
+                    string name = accessEvent.TryGetProperty("name", out var n) ? n.GetString() : "(unknown)";
+                    string employeeNo = accessEvent.TryGetProperty("employeeNoString", out var e) ? e.GetString() : "(none)";
+                    string status = accessEvent.TryGetProperty("attendanceStatus", out var s) ? s.GetString() : "undefined";
+                    string label = accessEvent.TryGetProperty("label", out var l) ? l.GetString() : "";
+
+                    // 🌐 Device info
+                    string deviceIp = root.TryGetProperty("ipAddress", out var ip) ? ip.GetString() : "";
+                    string readerId = root.TryGetProperty("deviceID", out var rid) ? rid.GetString() : "";
+
+                    // 🚫 Skip if name is unknown
+                    if (name == "(unknown)" || string.IsNullOrWhiteSpace(name))
+                        return;
+
+                    // 🖥 Display parsed event
+                    string parsed = $"{eventTime:HH:mm:ss} - Name: {name}, Employee#: {employeeNo}, {label}, Time: {dateTimeStr}";
+                    lstEvents.Items.Add(parsed);
+
+                    // 🗄 Insert into Local SQLite
+                    string localConnStr = Properties.Settings.Default.LocalSQLiteCon;
+                    using (var conn = new SQLiteConnection(localConnStr))
+                    {
+                        conn.Open();
+
+                        // 🔍 Check if employee exists
+                        bool employeeExists = false;
+                        using (var checkCmd = conn.CreateCommand())
+                        {
+                            checkCmd.CommandText = "SELECT COUNT(*) FROM Employees WHERE EmployeeNo = $EmployeeNo";
+                            checkCmd.Parameters.AddWithValue("$EmployeeNo", employeeNo);
+
+                            long count = (long)checkCmd.ExecuteScalar();
+                            employeeExists = count > 0;
+                        }
+
+                        // ➕ Insert employee if not exists
+                        if (!employeeExists)
+                        {
+                            using (var insertCmd = conn.CreateCommand())
+                            {
+                                insertCmd.CommandText = @"
+                            INSERT OR IGNORE INTO Employees 
+                            (EmployeeId, FullName, DateCreated, Role, SiteCode, Status)
+                            VALUES ($EmployeeId, $FullName, $DateCreated, $Role, $SiteCode, $Status);
+                        ";
+
+                                insertCmd.Parameters.AddWithValue("$EmployeeId", employeeNo);
+                                insertCmd.Parameters.AddWithValue("$FullName", name);
+                                insertCmd.Parameters.AddWithValue("$DateCreated", DateTime.Now);
+                                insertCmd.Parameters.AddWithValue("$Role", "User");
+                                insertCmd.Parameters.AddWithValue("$SiteCode", Properties.Settings.Default.SiteID);
+                                insertCmd.Parameters.AddWithValue("$Status", "Active");
+
+                                insertCmd.ExecuteNonQuery();
+                            }
+                        }
+
+                        // 📥 Insert into ReaderEvents
+                        using (var cmd = conn.CreateCommand())
+                        {
+                            cmd.CommandText = @"
+                        INSERT INTO ReaderEvents 
+                        (ReaderId, Timestamp, EventType, Value, PayloadRaw, CardNumber, PersonName, DeviceIP, IsEmulated, SiteId)
+                        VALUES
+                        ($ReaderId, $Timestamp, $EventType, $Value, $PayloadRaw, $CardNumber, $PersonName, $DeviceIP, $IsEmulated, $SiteId);
+                    ";
+
+                            cmd.Parameters.AddWithValue("$ReaderId", readerId);
+                            cmd.Parameters.AddWithValue("$Timestamp", eventTime);
+                            cmd.Parameters.AddWithValue("$EventType", status);
+                            cmd.Parameters.AddWithValue("$Value", label);
+                            cmd.Parameters.AddWithValue("$PayloadRaw", jsonPart);
+                            cmd.Parameters.AddWithValue("$CardNumber", employeeNo);
+                            cmd.Parameters.AddWithValue("$PersonName", name);
+                            cmd.Parameters.AddWithValue("$DeviceIP", deviceIp);
+                            cmd.Parameters.AddWithValue("$IsEmulated", 0);
+                            cmd.Parameters.AddWithValue("$SiteId", lblSiteID.Text);
+
+                            cmd.ExecuteNonQuery();
+                        }
+                    }
+
+                    // ☁️ Try to sync with Cloud SQL
+                    bool cloudSynced = false;
+                    try
+                    {
+                        string cloudConnStr = Properties.Settings.Default.SQLCon;
+                        using (var cloudConn = new SqlConnection(cloudConnStr))
+                        {
+                            cloudConn.Open();
+
+                            using (var empCmd = cloudConn.CreateCommand())
+                            {
+                                empCmd.CommandText = @"
+                            IF NOT EXISTS (SELECT 1 FROM Employees WHERE EmployeeId = @EmployeeId)
+                            BEGIN
+                                INSERT INTO Employees (EmployeeId, FullName, DateCreated, Role, SiteCode, Status)
+                                VALUES (@EmployeeId, @FullName, @DateCreated, @Role, @SiteCode, @Status)
+                            END
+                        ";
+
+                                empCmd.Parameters.AddWithValue("@EmployeeId", employeeNo);
+                                empCmd.Parameters.AddWithValue("@FullName", name);
+                                empCmd.Parameters.AddWithValue("@DateCreated", eventTime);
+                                empCmd.Parameters.AddWithValue("@Role", "User");
+                                empCmd.Parameters.AddWithValue("@SiteCode", Properties.Settings.Default.SiteID);
+                                empCmd.Parameters.AddWithValue("@Status", "Active");
+
+                                empCmd.ExecuteNonQuery();
+                            }
+
+                            cloudSynced = true;
+                        }
+                    }
+                    catch (Exception cloudEx)
+                    {
+                        lstEvents.Items.Add($"☁️ Cloud sync skipped: {cloudEx.Message}");
+                    }
+
+                    // 📦 Archive locally if cloud sync succeeded
+                    if (cloudSynced)
+                    {
+                        using (var archiveConn = new SQLiteConnection(localConnStr))
+                        {
+                            archiveConn.Open();
+
+                            using (var archiveCmd = archiveConn.CreateCommand())
+                            {
+                                archiveCmd.CommandText = @"
+                            INSERT INTO ReaderEventsArchive
+                            (ReaderId, Timestamp, EventType, Value, PayloadRaw, CardNumber, PersonName, DeviceIP, IsEmulated, SiteId)
+                            SELECT ReaderId, Timestamp, EventType, Value, PayloadRaw, CardNumber, PersonName, DeviceIP, IsEmulated, SiteId
+                            FROM ReaderEvents
+                            WHERE CardNumber = $EmployeeNo AND Timestamp = $Timestamp;
+                        ";
+
+                                archiveCmd.Parameters.AddWithValue("$EmployeeNo", employeeNo);
+                                archiveCmd.Parameters.AddWithValue("$Timestamp", eventTime);
+
+                                archiveCmd.ExecuteNonQuery();
+                            }
+
+                            using (var deleteCmd = archiveConn.CreateCommand())
+                            {
+                                deleteCmd.CommandText = @"
+                            DELETE FROM ReaderEvents
+                            WHERE CardNumber = $EmployeeNo AND Timestamp = $Timestamp;
+                        ";
+
+                                deleteCmd.Parameters.AddWithValue("$EmployeeNo", employeeNo);
+                                deleteCmd.Parameters.AddWithValue("$Timestamp", eventTime);
+
+                                deleteCmd.ExecuteNonQuery();
+                            }
+                        }
+                    }
+                }
+
+                // 🔄 Refresh local buffer grid
+                LoadLocalBufferGrid();
+            }
+            catch (Exception ex)
+            {
+                if (!isStopping)
+                    lstEvents.Items.Add($"⚠️ Could not parse/insert payload: {ex.Message}");
+            }
+        }
+
+
+
+
+
+
+        private void btnSaveReader_Click(object sender, EventArgs e)
+        {
+            string make = txtReadersMake.Text;
+            string model = txtReadersModel.Text;
+            string ip = txtReaderIP1.Text.Trim();
+            string portText = txtReaderPort.Text.Trim();
+            string username = txtReaderUsername.Text.Trim();
+            string password = txtReaderPassword.Text.Trim();
+
+            if (string.IsNullOrEmpty(make) || string.IsNullOrEmpty(model) || string.IsNullOrEmpty(ip) ||
+                string.IsNullOrEmpty(portText) || string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+            {
+                MessageBox.Show("Please fill in all reader details.");
+                return;
+            }
+
+            if (!int.TryParse(portText, out int port))
+            {
+                MessageBox.Show("Invalid port number.");
+                return;
+            }
+
+            string connStr = Properties.Settings.Default.SQLCon;
+
+            using (var conn = new SqlConnection(connStr))
+            {
+                conn.Open();
+
+                // Check if reader already exists by IP
+                var checkCmd = new SqlCommand("SELECT COUNT(*) FROM Readers WHERE IPAddress = @IP", conn);
+                checkCmd.Parameters.AddWithValue("@IP", ip);
+                int exists = (int)checkCmd.ExecuteScalar();
+
+                SqlCommand cmd;
+                if (exists > 0)
+                {
+                    // Update existing reader
+                    cmd = new SqlCommand(@"UPDATE Readers SET 
+                Make = @Make, Model = @Model, Port = @Port, Username = @Username, Password = @Password 
+                WHERE IPAddress = @IP", conn);
+                }
+                else
+                {
+                    // Insert new reader
+                    cmd = new SqlCommand(@"INSERT INTO Readers (Make, Model, IPAddress, Port, Username, Password, LastSync, IsConnected) 
+                VALUES (@Make, @Model, @IP, @Port, @Username, @Password, NULL, 0)", conn);
+                }
+
+                cmd.Parameters.AddWithValue("@Make", make);
+                cmd.Parameters.AddWithValue("@Model", model);
+                cmd.Parameters.AddWithValue("@IP", ip);
+                cmd.Parameters.AddWithValue("@Port", port);
+                cmd.Parameters.AddWithValue("@Username", username);
+                cmd.Parameters.AddWithValue("@Password", password);
+
+                cmd.ExecuteNonQuery();
+            }
+
+            MessageBox.Show("Reader saved successfully.");
+            LoadReaderGrid(); // Refresh grid
+        }
+
+        private void nudSyncInterval_ValueChanged_1(object sender, EventArgs e)
+        {
+            SaveSyncInterval();
+        }
+
+        public class Transaction
+        {
+
+            public int Id { get; set; }
+            public string ReaderId { get; set; }
+            public DateTime Timestamp { get; set; }
+            public string Payload { get; set; }
+        }
+
+        // 🔒 Flag to prevent duplicate popups
+        private bool popupOpened = false;
+
+        private async void tabControl1_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            // 🎯 Show the button only when tabPage index 0 is selected
+            btnRefreshDashboard.Visible = (tabControl1.SelectedIndex == 0);
+        }
+
+        private void EnsureLocalBufferTableExists()
+        {
+            string localConnStr = Properties.Settings.Default.LocalSQLiteCon;
+            using (var conn = new SQLiteConnection(localConnStr))
+            {
+                conn.Open();
+
+                string createQuery = @"
+            CREATE TABLE IF NOT EXISTS ReaderEvents (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ReaderId TEXT NOT NULL,
+                Timestamp DATETIME NOT NULL,
+                EventType TEXT,
+                Value TEXT,
+                PayloadRaw TEXT,
+                CardNumber TEXT,
+                PersonName TEXT,
+                DeviceIP TEXT,
+                IsEmulated INTEGER NOT NULL DEFAULT 1,
+                SiteId TEXT
+                );";
+
+                using (var cmd = new SQLiteCommand(createQuery, conn))
+                {
+                    cmd.ExecuteNonQuery();
+                }
+
+                Log("🧱 Verified ReaderEvents table in localbuffer.db.");
+            }
+        }
+
+
+
+        private void btnPushToCloud_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                PushLocalBufferToCloud();
+                lblSyncStatusDash.Text = $"☁️ Cloud sync OK at {DateTime.Now:HH:mm:ss}";
+                lblSyncStatusDash.ForeColor = Color.Blue;
+                LoadLocalBufferGrid();
+                
+            }
+            catch (Exception ex)
+            {
+                lblSyncStatusDash.Text = $"❌ Cloud sync error: {ex.Message}";
+                lblSyncStatusDash.ForeColor = Color.Red;
+                Log($"❌ Cloud sync error: {ex.Message}", false);
+            }
+        }
+
+
+
+        private void btnPushLocal_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (emulator == null)
+                {
+                    Log("⚠️ Emulator not initialized. Cannot push to local buffer.");
+                    return;
+                }
+
+                var data = emulator.GetNextReading();
+
+                SaveToLocalBuffer(data);
+                //UpdateGridOrUI(data);              // Optional: if you're still using dgvLocalBuffer
+                UpdateLocalTransactionList(data);  // ✅ Add this line
+
+                Log($"📥 Pushed to localbuffer.db: {data.ReaderId} | {data.EventType} | {data.Value}");
+                lblSyncStatusDash.Text = $"📥 Local push OK at {DateTime.Now:HH:mm:ss}";
+                lblSyncStatusDash.ForeColor = Color.DarkGreen;
+                LoadLocalBufferGrid();
+            }
+            catch (Exception ex)
+            {
+                Log($"❌ Local push failed: {ex.Message}", false);
+                lblSyncStatusDash.Text = $"❌ Local push error: {ex.Message}";
+                lblSyncStatusDash.ForeColor = Color.Red;
+            }
+        }
+
+        private void dgvReaders_CellContentClick(object sender, DataGridViewCellEventArgs e)
+        {
+            // 🚫 Ignore header clicks or invalid rows
+            if (e.RowIndex < 0 || e.RowIndex >= dgvReaders.Rows.Count)
+                return;
+
+            // 🔍 Get the clicked row
+            var row = dgvReaders.Rows[e.RowIndex];
+
+            // 🧩 Helper to safely extract cell values
+            string GetCellValue(string columnName)
+            {
+                return dgvReaders.Columns.Contains(columnName)
+                    ? row.Cells[columnName].Value?.ToString() ?? ""
+                    : "";
+            }
+
+            // 🆔 Reader details
+            string readerId = GetCellValue("Id");
+            lblReaderID.Text = string.IsNullOrEmpty(readerId) ? "N/A" : readerId;
+
+            txtReadersMake.Text = GetCellValue("Make");
+            txtReadersModel.Text = GetCellValue("Model");
+            txtReaderIP1.Text = GetCellValue("IPAddress");
+            txtReaderPort.Text = GetCellValue("Port");
+            txtReaderUsername.Text = GetCellValue("Username");
+            txtReaderPassword.Text = GetCellValue("Password");
+            lblSiteID.Text = GetCellValue("SiteId");
+
+            // 📡 Status comes directly from the DataGridView row
+            string status = GetCellValue("Status");
+
+            if (status.Equals("Connected", StringComparison.OrdinalIgnoreCase))
+            {
+                lblReaderStatus.Text = "✅ Connected";
+                lblReaderStatus.ForeColor = Color.Green;
+                lblReaderStatus.Font = new Font(lblReaderStatus.Font, FontStyle.Bold);
+            }
+            else
+            {
+                lblReaderStatus.Text = "❌ Not Connected";
+                lblReaderStatus.ForeColor = Color.Red;
+                lblReaderStatus.Font = new Font(lblReaderStatus.Font, FontStyle.Bold);
+            }
+
+            // 🎛 Show action buttons
+            btnConnectReader1.Visible = true;
+            btnSaveReader.Visible = true;
+            btnDeleteReader.Visible = true;
+            btnDisconnect.Visible = true;
+
+            // 📝 Log selection
+            Log($"📡 Reader selected: {GetCellValue("Make")} {GetCellValue("Model")} @ {txtReaderIP1.Text}:{txtReaderPort.Text} | Reader ID: {lblReaderID.Text}");
+        }
+
+
+
+        private void btnAdminSave_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                // 📝 Read new credentials from textboxes
+                string newUsername = txtUsernameForm1.Text.Trim();
+                string newPassword = txtPasswordForm1.Text.Trim();
+
+                // 🚫 Validate input
+                if (string.IsNullOrEmpty(newUsername) || string.IsNullOrEmpty(newPassword))
+                {
+                    Log("⚠️ Username or password cannot be empty.");
+                    return;
+                }
+
+                // 🔑 Connect to local SQLite
+                string localConnStr = Properties.Settings.Default.LocalSQLiteCon;
+                using (var conn = new SQLiteConnection(localConnStr))
+                {
+                    conn.Open();
+
+                    // 🔍 Check if user exists
+                    bool userExists = false;
+                    using (var checkCmd = new SQLiteCommand("SELECT COUNT(*) FROM Users WHERE Id = 1", conn))
+                    {
+                        long count = (long)checkCmd.ExecuteScalar();
+                        userExists = count > 0;
+                    }
+
+                    if (userExists)
+                    {
+                        // 🗄 Update existing user
+                        using (var updateCmd = new SQLiteCommand(@"
+                    UPDATE Users 
+                    SET Username = @Username, Password = @Password 
+                    WHERE Id = 1", conn))
+                        {
+                            updateCmd.Parameters.AddWithValue("@Username", newUsername);
+                            updateCmd.Parameters.AddWithValue("@Password", newPassword);
+
+                            int rowsAffected = updateCmd.ExecuteNonQuery();
+
+                            if (rowsAffected > 0)
+                            {
+                                Log($"✅ Credentials updated: {newUsername}");
+                            }
+                            else
+                            {
+                                Log("⚠️ Update attempted but no rows affected.");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // ➕ Insert new user if not exists
+                        using (var insertCmd = new SQLiteCommand(@"
+                    INSERT INTO Users (Id, Username, Password) 
+                    VALUES (1, @Username, @Password)", conn))
+                        {
+                            insertCmd.Parameters.AddWithValue("@Username", newUsername);
+                            insertCmd.Parameters.AddWithValue("@Password", newPassword);
+
+                            int rowsInserted = insertCmd.ExecuteNonQuery();
+
+                            if (rowsInserted > 0)
+                            {
+                                Log($"✅ New user created: {newUsername}");
+                            }
+                            else
+                            {
+                                Log("⚠️ Insert attempted but no rows affected.");
+                            }
+                        }
+                    }
+                }
+            }
+            catch (SQLiteException sqlex)
+            {
+                Log($"❌ SQLite error while saving credentials: {sqlex.Message}");
+            }
+            catch (Exception ex)
+            {
+                Log($"❌ Unexpected error while saving credentials: {ex.Message}");
+            }
+        }
+
+
+
+        private void btnSiteID_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                string newSiteId = txtSiteID.Text;
+                Properties.Settings.Default.SiteID = newSiteId.ToString();
+                Properties.Settings.Default.Save();
+
+                Log($"✅ Site ID updated to {newSiteId}", true);
+            }
+            catch (Exception ex)
+            {
+                Log($"❌ Invalid Site ID: {ex.Message}");
+            }
+        }
+
+        private void btnBufferRefresh_Click(object sender, EventArgs e)
+        {
+            LoadLocalBufferGrid();
+        }
+
+        //private async void btnSaveEmployee_Click(object sender, EventArgs e)
+        //{
+        //    string employeeNo = txtEmployeeNo.Text.Trim();
+        //    string fullName = txtFullName.Text.Trim();
+        //    string email = txtEmail.Text.Trim();
+        //    string mobile = txtMobile.Text.Trim();
+        //    string role = cmbRole.SelectedItem?.ToString();
+        //    string siteCode = cmbSiteCode.Text;
+        //    string status = cmbStatus.SelectedItem?.ToString();
+
+        //    if (string.IsNullOrWhiteSpace(employeeNo) || string.IsNullOrWhiteSpace(fullName) ||
+        //        string.IsNullOrWhiteSpace(role) || string.IsNullOrWhiteSpace(siteCode))
+        //    {
+        //        ShowToast("⚠️ Please fill in all required fields.", Color.Goldenrod);
+        //        return;
+        //    }
+
+        //    var employee = new EmployeeDto
+        //    {
+        //        EmployeeId = employeeNo,
+        //        FullName = fullName,
+        //        Email = email,
+        //        Mobile = mobile,
+        //        Role = role,
+        //        SiteCode = siteCode,
+        //        Status = status
+        //    };
+
+        //    // Override ID if editing
+        //    if (isEditMode && !string.IsNullOrWhiteSpace(selectedEmployeeId))
+        //    {
+        //        employee.EmployeeId = selectedEmployeeId;
+        //    }
+
+        //    bool success = SaveEmployeeToDatabase(employee);
+
+        //    if (success)
+        //    {
+        //        string action = isEditMode ? "updated" : "created";
+        //        ShowToast($"✅ Employee {action} successfully!", Color.LightGreen);
+        //        LogSyncSuccess(employee.EmployeeId, employee, $"Employee {action} successfully.");
+        //        ClearEmployeeForm();
+        //        RefreshEmployeeGrid();
+        //        HighlightSavedRow(employee.EmployeeId);
+
+        //        bool synced = await SyncToWebService(employee);
+        //        if (!synced)
+        //        {
+        //            HighlightFailedSync(employee.EmployeeId);
+        //            LogSyncFailure(employee.EmployeeId, employee, "❌ Sync to web service failed.");
+        //        }
+        //    }
+        //    else
+        //    {
+        //        ShowToast("❌ Failed to save employee. Please check your connection or try again.", Color.LightCoral);
+        //        LogSyncFailure(employee.EmployeeId, employee, "❌ Save to database failed.");
+        //    }
+        //}
+
+        private void HighlightFailedSync(string employeeId)
+        {
+            foreach (DataGridViewRow row in dgvEmployees.Rows)
+            {
+                if (row.Cells["EmployeeId"].Value?.ToString() == employeeId)
+                {
+                    row.DefaultCellStyle.BackColor = Color.LightCoral;
+                    break;
+                }
+            }
+        }
+
+        private async Task<bool> SyncToWebService(EmployeeDto employee)
+        {
+            try
+            {
+                using (HttpClient client = new HttpClient())
+                {
+                    string apiUrl = "https://yourmiddleware/api/employees/sync"; // update as needed
+                    var content = new StringContent(JsonConvert.SerializeObject(employee), Encoding.UTF8, "application/json");
+                    HttpResponseMessage response = await client.PostAsync(apiUrl, content);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        ShowToast($"🚀 Synced {employee.EmployeeId} to web service.", Color.LightGreen);
+                        return true;
+                    }
+                    else
+                    {
+                        ShowToast($"❌ Sync failed: {response.ReasonPhrase}", Color.LightCoral);
+                        return false;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowToast($"❌ Sync error: {ex.Message}", Color.LightCoral);
+                return false;
+            }
+        }
+
+
+        private void ShowToast(string message, Color backColor)
+        {
+            Label toast = new Label
+            {
+                Text = message,
+                BackColor = backColor,
+                ForeColor = Color.White,
+                AutoSize = true,
+                Padding = new Padding(10),
+                Font = new Font("Segoe UI", 10, FontStyle.Bold),
+                Location = new Point(10, 10),
+                BorderStyle = BorderStyle.FixedSingle
+            };
+
+            this.Controls.Add(toast);
+            toast.BringToFront();
+
+            var timer = new Timer { Interval = 3000 };
+            timer.Tick += (s, e) =>
+            {
+                this.Controls.Remove(toast);
+                timer.Stop();
+                timer.Dispose();
+            };
+            timer.Start();
+        }
+
+
+        private void LogSyncSuccess(string employeeId, object payload, string message)
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(Properties.Settings.Default.SQLCon))
+                {
+                    string query = @"
+                INSERT INTO SyncLog (EmployeeId, Payload, ErrorMessage)
+                VALUES (@EmployeeId, @Payload, @ErrorMessage);
+            ";
+
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@EmployeeId", employeeId);
+                        cmd.Parameters.AddWithValue("@Payload", JsonConvert.SerializeObject(payload));
+                        cmd.Parameters.AddWithValue("@ErrorMessage", $"✅ {message}");
+                        conn.Open();
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowToast($"🚨 Failed to log success: {ex.Message}", Color.Red);
+            }
+        }
+
+
+        private void RefreshEmployeeGrid()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(Properties.Settings.Default.SQLCon))
+                {
+                    string query = "SELECT EmployeeId, FullName, Email, Mobile, Role, SiteCode, Status, LastUpdated FROM Employees";
+                    SqlDataAdapter da = new SqlDataAdapter(query, conn);
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+
+                    dgvEmployees.DataSource = dt;
+                    lblSyncStatus.Text = $"📋 Loaded {dt.Rows.Count} employees.";
+                    dgvEmployees.DataSource = dt;
+                    StyleInactiveRows();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"❌ Failed to load employee grid: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+
+        private bool SaveEmployeeToDatabase(EmployeeDto employee)
+        {
+            bool success = false;
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(Properties.Settings.Default.SQLCon))
+                {
+                    string query = @"
+                MERGE INTO Employees AS Target
+                USING (SELECT @EmployeeId AS EmployeeId) AS Source
+                ON Target.EmployeeId = Source.EmployeeId
+                WHEN MATCHED THEN
+                    UPDATE SET
+                        FullName = @FullName,
+                        Email = @Email,
+                        Mobile = @Mobile,
+                        Role = @Role,
+                        SiteCode = @SiteCode,
+                        Status = @Status,
+                        LastUpdated = GETDATE()
+                WHEN NOT MATCHED THEN
+                    INSERT (EmployeeId, FullName, Email, Mobile, Role, SiteCode, Status, LastUpdated)
+                    VALUES (@EmployeeId, @FullName, @Email, @Mobile, @Role, @SiteCode, @Status, GETDATE());
+            ";
+
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@EmployeeId", employee.EmployeeId);
+                        cmd.Parameters.AddWithValue("@FullName", employee.FullName);
+                        cmd.Parameters.AddWithValue("@Email", employee.Email ?? "");
+                        cmd.Parameters.AddWithValue("@Mobile", employee.Mobile ?? "");
+                        cmd.Parameters.AddWithValue("@Role", employee.Role);
+                        cmd.Parameters.AddWithValue("@SiteCode", employee.SiteCode);
+                        cmd.Parameters.AddWithValue("@Status", employee.Status);
+                        cmd.Parameters.AddWithValue("@LastUpdated", employee.LastUpdated);
+
+                        conn.Open();
+                        cmd.ExecuteNonQuery();
+                        success = true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogSyncFailure(employee.EmployeeId, employee, $"❌ Save failed: {ex.Message}");
+                success = false;
+            }
+
+            // Post-save actions (only if successful)
+            if (success)
+            {
+                RefreshEmployeeGrid();
+                HighlightSavedRow(employee.EmployeeId);
+            }
+
+            return success;
+        }
+
+        private void StyleInactiveRows()
+        {
+            foreach (DataGridViewRow row in dgvEmployees.Rows)
+            {
+                string status = row.Cells["Status"].Value?.ToString();
+                if (status == "Inactive")
+                {
+                    row.DefaultCellStyle.Font = new Font(dgvEmployees.Font, FontStyle.Italic);
+                    row.DefaultCellStyle.ForeColor = Color.Gray;
+                }
+            }
+        }
+
+
+        private void LogSyncFailure(string employeeId, object payload, string errorMessage)
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(Properties.Settings.Default.SQLCon))
+                {
+                    string query = @"
+                INSERT INTO SyncLog (EmployeeId, Payload, ErrorMessage)
+                VALUES (@EmployeeId, @Payload, @ErrorMessage);
+            ";
+
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@EmployeeId", employeeId);
+                        cmd.Parameters.AddWithValue("@Payload", JsonConvert.SerializeObject(payload));
+                        cmd.Parameters.AddWithValue("@ErrorMessage", errorMessage);
+                        conn.Open();
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"🚨 Failed to log sync error: {ex.Message}", "Logging Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+
+
+        public class EmployeeDto
+        {
+            public string EmployeeId { get; set; }
+            public string FullName { get; set; }
+            public string Email { get; set; }
+            public string Mobile { get; set; }
+            public string Role { get; set; }
+            public string SiteCode { get; set; }
+            public string Status { get; set; }
+            public DateTime LastUpdated { get; set; } // ✅ Add this
+        }
+
+
+
+        //private void ClearEmployeeForm()
+        //{
+        //    txtEmployeeNo.Clear();
+        //    txtFullName.Clear();
+        //    txtEmail.Clear();
+        //    txtMobile.Clear();
+        //    cmbRole.SelectedIndex = -1;
+        //    cmbSiteCode.Text = Properties.Settings.Default.SiteID.ToString();
+        //    cmbStatus.SelectedIndex = -1;
+        //    isEditMode = false;
+        //    selectedEmployeeId = null;
+        //    btnSaveEmployee.Text = "💾 Save Employee";
+        //    lblSyncStatus.Text = "🧹 Ready to create a new employee.";
+        //}
+
+
+        //private void btnClearForm_Click(object sender, EventArgs e)
+        //{
+        //    ClearEmployeeForm();    
+        //}
+
+        private void HighlightSavedRow(string employeeId)
+        {
+            foreach (DataGridViewRow row in dgvEmployees.Rows)
+            {
+                if (row.Cells["EmployeeId"].Value?.ToString() == employeeId)
+                {
+                    row.DefaultCellStyle.BackColor = Color.LightGreen;
+                    break;
+                }
+            }
+        }
+
+
+        private async void btnFetchFromWebSvc_Click(object sender, EventArgs e)
+        {
+            string siteId = Properties.Settings.Default.SiteID;
+
+            await Task.Run(() =>
+            {
+                try
+                {
+                    using (SqlConnection conn = new SqlConnection(Properties.Settings.Default.SQLCon))
+                    {
+                        string query = @"
+                    SELECT EmployeeId, FullName, Email, Mobile, Role, SiteCode, Status, LastUpdated
+                    FROM Employees
+                    WHERE SiteCode = @SiteCode
+                    ORDER BY FullName";
+
+                        using (SqlCommand cmd = new SqlCommand(query, conn))
+                        {
+                            cmd.Parameters.AddWithValue("@SiteCode", siteId);
+
+                            using (SqlDataAdapter da = new SqlDataAdapter(cmd))
+                            {
+                                DataTable dt = new DataTable();
+                                da.Fill(dt);
+
+                                dgvEmployees.DataSource = dt;
+                                lblSyncStatus.Text = $"📋 Loaded {dt.Rows.Count} employees.";
+                                dgvEmployees.DataSource = dt;
+                                StyleInactiveRows();
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Invoke(new Action(() =>
+                    {
+                        ShowToast($"🚨 SQL fetch error: {ex.Message}", Color.Red);
+                        LogSyncFailure("N/A", null, $"🚨 SQL fetch exception: {ex.Message}");
+                    }));
+                }
+            });
+        }
+
+
+
+        private async void btnSyncToCore_Click(object sender, EventArgs e)
+        {
+            if (dgvEmployees.Rows.Count == 0)
+            {
+                ShowToast("ℹ️ No employees to sync.", Color.Goldenrod);
+                return;
+            }
+
+            int successCount = 0;
+            int failCount = 0;
+
+            foreach (DataGridViewRow row in dgvEmployees.Rows)
+            {
+                try
+                {
+                    var employee = new EmployeeDto
+                    {
+                        EmployeeId = row.Cells["EmployeeId"].Value?.ToString(),
+                        FullName = row.Cells["FullName"].Value?.ToString(),
+                        Email = row.Cells["Email"].Value?.ToString(),
+                        Mobile = row.Cells["Mobile"].Value?.ToString(),
+                        Role = row.Cells["Role"].Value?.ToString(),
+                        SiteCode = row.Cells["SiteCode"].Value?.ToString(),
+                        Status = row.Cells["Status"].Value?.ToString()
+                    };
+
+                    bool synced = await SyncToWebService(employee);
+
+                    if (synced)
+                    {
+                        row.DefaultCellStyle.BackColor = Color.LightGreen;
+                        LogSyncSuccess(employee.EmployeeId, employee, "✅ Synced to core successfully.");
+                        successCount++;
+                    }
+                    else
+                    {
+                        row.DefaultCellStyle.BackColor = Color.LightCoral;
+                        LogSyncFailure(employee.EmployeeId, employee, "❌ Sync to core failed.");
+                        failCount++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    string id = row.Cells["EmployeeId"].Value?.ToString() ?? "N/A";
+                    row.DefaultCellStyle.BackColor = Color.LightCoral;
+                    LogSyncFailure(id, null, $"🚨 Exception during sync: {ex.Message}");
+                    failCount++;
+                }
+            }
+
+            ShowToast($"🔁 Sync complete: {successCount} ✅, {failCount} ❌", Color.LightBlue);
+        }
+
+        private void LoadLocalBufferFromSQLite()
+        {
+            string dbPath = Properties.Settings.Default.LocalSQLiteCon;
+            //string connStr = $"Data Source={dbPath};Version=3;";
+
+            try
+            {
+                using (SQLiteConnection conn = new SQLiteConnection(dbPath))
+                {
+                    conn.Open();
+                    string query = "SELECT EmployeeId, FullName, Email, Mobile, Role, SiteCode, Status, LastUpdated FROM Employees";
+
+                    using (SQLiteDataAdapter da = new SQLiteDataAdapter(query, conn))
+                    {
+                        DataTable dt = new DataTable();
+                        da.Fill(dt);
+
+                        dgvEmployees.DataSource = dt;
+                        StyleInactiveRows(); // 💤 Italicize inactive
+                        HighlightConflictsWithCloud(dt); // 🔥 Flag rows with newer local data
+                        ShowToast($"📦 Loaded {dt.Rows.Count} employees from local buffer.", Color.LightBlue);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowToast($"❌ Failed to load local buffer: {ex.Message}", Color.Red);
+            }
+        }
+
+        private DateTime? GetCloudLastUpdated(string employeeId)
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(Properties.Settings.Default.SQLCon))
+                {
+                    string query = "SELECT LastUpdated FROM Employees WHERE EmployeeId = @EmployeeId";
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@EmployeeId", employeeId);
+                        conn.Open();
+                        object result = cmd.ExecuteScalar();
+                        return result != null ? Convert.ToDateTime(result) : (DateTime?)null;
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+
+
+        private void cmbStatusFilter_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            string selectedStatus = cmbStatusFilter.SelectedItem?.ToString();
+            string siteCode = Properties.Settings.Default.SiteID;
+
+            if (string.IsNullOrWhiteSpace(selectedStatus) || selectedStatus == "All")
+            {
+                RefreshEmployeeGrid(); // Load everything
+                ShowToast("📋 Showing all employees.", Color.LightBlue);
+                return;
+            }
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(Properties.Settings.Default.SQLCon))
+                {
+                    string query = @"
+                SELECT EmployeeId, FullName, Email, Mobile, Role, SiteCode, Status, LastSynced
+                FROM Employees
+                WHERE SiteCode = @SiteCode AND Status = @Status
+                ORDER BY FullName";
+
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@SiteCode", siteCode);
+                        cmd.Parameters.AddWithValue("@Status", selectedStatus);
+
+                        SqlDataAdapter da = new SqlDataAdapter(cmd);
+                        DataTable dt = new DataTable();
+                        da.Fill(dt);
+
+                        dgvEmployees.DataSource = dt;
+                        StyleInactiveRows(); // 💤 Italicize inactive
+                        ShowToast($"🔍 Filtered by status: {selectedStatus}", Color.LightSkyBlue);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowToast($"❌ Filter error: {ex.Message}", Color.Red);
+            }
+        }
+
+
+        private void btnLoadLocalBuffer_Click(object sender, EventArgs e)
+        {
+            LoadLocalBufferFromSQLite();
+        }
+
+        private void HighlightConflictsWithCloud(DataTable localData)
+        {
+            foreach (DataRow row in localData.Rows)
+            {
+                string id = row["EmployeeId"].ToString();
+                DateTime localTime = Convert.ToDateTime(row["LastUpdated"]);
+                DateTime? cloudTime = GetCloudLastUpdated(id); // implement this
+
+                if (cloudTime.HasValue && localTime > cloudTime.Value)
+                {
+                    foreach (DataGridViewRow gridRow in dgvEmployees.Rows)
+                    {
+                        if (gridRow.Cells["EmployeeId"].Value?.ToString() == id)
+                        {
+                            gridRow.DefaultCellStyle.BackColor = Color.Orange;
+                            gridRow.DefaultCellStyle.Font = new Font(dgvEmployees.Font, FontStyle.Bold);
+                        }
+                    }
+                }
+            }
+        }
+
+        private void btnSaveToLocalBuffer_Click(object sender, EventArgs e)
+        {
+            if (dgvEmployees.Rows.Count == 0)
+            {
+                ShowToast("⚠️ No employees to save.", Color.Goldenrod);
+                return;
+            }
+
+            int savedCount = 0;
+            string dbPath = Properties.Settings.Default.LocalSQLiteCon;
+            string connStr = $"Data Source={dbPath};Version=3;";
+
+            try
+            {
+                using (SQLiteConnection conn = new SQLiteConnection(connStr))
+                {
+                    conn.Open();
+
+                    foreach (DataGridViewRow row in dgvEmployees.Rows)
+                    {
+                        if (row.IsNewRow) continue;
+
+                        var employee = new EmployeeDto
+                        {
+                            EmployeeId = row.Cells["EmployeeId"].Value?.ToString(),
+                            FullName = row.Cells["FullName"].Value?.ToString(),
+                            Email = row.Cells["Email"].Value?.ToString(),
+                            Mobile = row.Cells["Mobile"].Value?.ToString(),
+                            Role = row.Cells["Role"].Value?.ToString(),
+                            SiteCode = row.Cells["SiteCode"].Value?.ToString(),
+                            Status = row.Cells["Status"].Value?.ToString(),
+                            LastUpdated = DateTime.Now
+                        };
+
+                        string query = @"
+                    INSERT OR REPLACE INTO Employees 
+                    (EmployeeId, FullName, Email, Mobile, Role, SiteCode, Status, LastUpdated)
+                    VALUES 
+                    (@EmployeeId, @FullName, @Email, @Mobile, @Role, @SiteCode, @Status, @LastUpdated);";
+
+                        using (SQLiteCommand cmd = new SQLiteCommand(query, conn))
+                        {
+                            cmd.Parameters.AddWithValue("@EmployeeId", employee.EmployeeId);
+                            cmd.Parameters.AddWithValue("@FullName", employee.FullName);
+                            cmd.Parameters.AddWithValue("@Email", employee.Email ?? "");
+                            cmd.Parameters.AddWithValue("@Mobile", employee.Mobile ?? "");
+                            cmd.Parameters.AddWithValue("@Role", employee.Role);
+                            cmd.Parameters.AddWithValue("@SiteCode", employee.SiteCode);
+                            cmd.Parameters.AddWithValue("@Status", employee.Status);
+                            cmd.Parameters.AddWithValue("@LastUpdated", employee.LastUpdated);
+
+                            cmd.ExecuteNonQuery();
+                            savedCount++;
+                        }
+                    }
+                }
+
+                ShowToast($"💾 Saved {savedCount} employees to local buffer.", Color.LightGreen);
+            }
+            catch (Exception ex)
+            {
+                ShowToast($"❌ Save to buffer failed: {ex.Message}", Color.Red);
+            }
+        }
+
+        private void btnDisconnect_Click(object sender, EventArgs e)
+        {
+            StopListening();
+        }
+
+        private void btnDeleteReader_Click(object sender, EventArgs e)
+        {
+            int readerId = int.Parse(lblReaderID.Text);
+            DeleteReader(readerId);
+        }
+
+        private void DeleteReader(int readerId)
+        {
+            // Delete from SQL Server
+            using (SqlConnection conn = new SqlConnection(Properties.Settings.Default.SQLCon))
+            {
+                conn.Open();
+                string sql = "DELETE FROM Readers WHERE Id = @Id";
+                using (SqlCommand cmd = new SqlCommand(sql, conn))
+                {
+                    cmd.Parameters.Add("@Id", SqlDbType.Int).Value = readerId;
+                    int rowsAffected = cmd.ExecuteNonQuery();
+                    Log(rowsAffected > 0
+                        ? $"🗑️ Reader {readerId} deleted from SQL Server."
+                        : $"⚠️ Reader {readerId} not found in SQL Server.");
+                }
+            }
+
+            // Delete from SQLite
+            using (SQLiteConnection conn = new SQLiteConnection(Properties.Settings.Default.LocalSQLiteCon))
+            {
+                conn.Open();
+                string sql = "DELETE FROM Readers WHERE Id = @Id";
+                using (SQLiteCommand cmd = new SQLiteCommand(sql, conn))
+                {
+                    cmd.Parameters.AddWithValue("@Id", readerId);
+                    int rowsAffected = cmd.ExecuteNonQuery();
+                    Log(rowsAffected > 0
+                        ? $"🗑️ Reader {readerId} deleted from SQLite."
+                        : $"⚠️ Reader {readerId} not found in SQLite.");
+                }
+            }
+            // 🔄 Refresh DataGridView
+            LoadReaderGrid();
+        }
+
+        private async void btnSyncReader_Click(object sender, EventArgs e)
+        {
+            string readerIp = "10.0.0.100";       // Reader IP
+            string readerUser = "admin";          // Reader username
+            string readerPassword = "etsa@sohdev123";  // Reader password
+
+            ShowToast("🚀 Starting sync to reader...", Color.LightSkyBlue);
+
+            try
+            {
+                await SyncEmployeesToReader(readerIp, readerUser, readerPassword);
+                ShowToast("✅ Sync completed.", Color.LightGreen);
+            }
+            catch (Exception ex)
+            {
+                Log($"❌ Sync failed: {ex}");
+                ShowToast($"❌ Sync failed: {ex}", Color.OrangeRed);
+            }
+        }
+
+        public async Task SyncEmployeesToReader(string readerIp, string readerUser, string readerPassword)
+        {
+            await Task.Run(() =>
+            {
+                // Initialize SDK
+                NET_DVR_Init();
+
+                // Login info struct
+                NET_DVR_USER_LOGIN_INFO loginInfo = new NET_DVR_USER_LOGIN_INFO
+                {
+                    sDeviceAddress = readerIp,
+                    wPort = 8000,
+                    sUserName = readerUser,
+                    sPassword = readerPassword
+                };
+
+                NET_DVR_DEVICEINFO_V40 deviceInfo = new NET_DVR_DEVICEINFO_V40();
+                int userId = NET_DVR_Login_V40(ref loginInfo, ref deviceInfo);
+
+                if (userId < 0)
+                {
+                    uint err = NET_DVR_GetLastError();
+                    ShowToast($"❌ Login failed, error {err}", Color.OrangeRed);
+                    return;
+                }
+
+                using (var conn = new SQLiteConnection(Properties.Settings.Default.LocalSQLiteCon))
+                {
+                    conn.Open();
+
+                    string sql = "SELECT EmployeeId, FullName, SiteCode FROM Employees WHERE Status = 'Active'";
+                    using (var cmd = new SQLiteCommand(sql, conn))
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            int employeeNo = Convert.ToInt32(reader["EmployeeId"]);
+                            string personName = reader["FullName"].ToString();
+
+                            NET_DVR_USER_INFO userInfo = new NET_DVR_USER_INFO
+                            {
+                                dwEmployeeNo = employeeNo,
+                                byName = personName,
+                                byUserType = 0, // normal
+                                byDoorRight = new byte[] { 1, 0, 0, 0 }
+                            };
+
+                            bool result = NET_DVR_AddUserInfo(userId, ref userInfo);
+                            if (result)
+                            {
+                                string actionTaken = $"✅ Added {personName} (EmployeeNo {employeeNo}) to {readerIp}";
+                                ShowToast(actionTaken, Color.LightGreen);
+                                Log(actionTaken);
+                            }
+                            else
+                            {
+                                uint err = NET_DVR_GetLastError();
+                                string actionTaken = $"⚠️ Failed to add {personName} to {readerIp}, error {err}";
+                                ShowToast(actionTaken, Color.OrangeRed);
+                                Log(actionTaken);
+                            }
+                        }
+                    }
+                }
+
+                NET_DVR_Logout(userId);
+                NET_DVR_Cleanup();
+            });
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            Properties.Settings.Default.LocalSQLiteCon=txtLocalDB.Text.Trim();
+            Properties.Settings.Default.Save();
+            ShowToast($"✅ Added Local DB Connection String Successfully...", Color.Green);
+        }
+
+        private async void cmdIPEnrol_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            // ✅ Only run when popup is not already openedprivate async void cmdIPEnrol_SelectedIndexChanged(object sender, EventArgs e)
+            {
+                // ✅ Only run when popup is not already opened
+                if (!popupOpened)
+                {
+                    try
+                    {
+                        // 🚫 Validate Reader IP
+                        if (string.IsNullOrEmpty(cmdIPEnrol.Text))
+                        {
+                            ShowToast("❌ Reader IP is required.", Color.Red);
+                            return;
+                        }
+
+                        // 📝 Gather IP address
+                        string ipAddress = cmdIPEnrol.Text.Trim();
+                        string username = string.Empty;
+                        string password = string.Empty;
+
+                        try
+                        {
+                            // 🗄 Fetch credentials from cloud database
+                            string connStr = Properties.Settings.Default.SQLCon;
+                            using (var conn = new SqlConnection(connStr))
+                            {
+                                await conn.OpenAsync();
+
+                                var cmd = new SqlCommand(@"
+                        SELECT Username, Password 
+                        FROM Readers 
+                        WHERE IPAddress = @IPAddress 
+                          AND SiteId = @SiteId", conn);
+
+                                cmd.Parameters.AddWithValue("@IPAddress", ipAddress);
+                                cmd.Parameters.AddWithValue("@SiteId", Properties.Settings.Default.SiteID);
+
+                                using (var reader = await cmd.ExecuteReaderAsync())
+                                {
+                                    if (await reader.ReadAsync())
+                                    {
+                                        username = reader.IsDBNull(0) ? "" : reader.GetString(0);
+                                        password = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                                    }
+                                    else
+                                    {
+                                        ShowToast("❌ No credentials found for this IP.", Color.Red);
+                                        return;
+                                    }
+                                }
+                            }
+
+                            // 📡 Ping the IP to check connectivity
+                            bool isReachable = false;
+                            using (var ping = new System.Net.NetworkInformation.Ping())
+                            {
+                                try
+                                {
+                                    var reply = await ping.SendPingAsync(ipAddress, 2000); // 2s timeout
+                                    isReachable = (reply.Status == IPStatus.Success);
+                                }
+                                catch
+                                {
+                                    isReachable = false;
+                                }
+                            }
+
+                            // 🔧 Ensure environment initialized
+                            if (_env == null)
+                            {
+                                _env = await CoreWebView2Environment.CreateAsync(
+                                    null,
+                                    "C:\\MyWebView2Data",
+                                    new CoreWebView2EnvironmentOptions("--ignore-certificate-errors"));
+                            }
+
+                            // 🌐 Build URL and show popup
+                            string url = $"https://{ipAddress}/doc/index.html#/portal/login";
+                            string popupTitle = isReachable
+                                ? $"SOH Employee Enrollment - {ipAddress} - Username: {username} - Password: {password}"
+                                : $"❌ Device Offline - {ipAddress} (No Ping Response)";
+
+                            var popup = new PopupBrowserForm(_env, url, username, password)
+                            {
+                                StartPosition = FormStartPosition.CenterParent,
+                                Width = 1000,
+                                Height = 800,
+                                Text = popupTitle
+                            };
+
+                            // ➕ Add bold centered label
+                            var lblStatus = new Label
+                            {
+                                Text = isReachable ? "✅ Device Online" : "❌ Device Offline",
+                                Font = new Font("Segoe UI", 16, FontStyle.Bold),
+                                AutoSize = true,
+                                ForeColor = isReachable ? Color.Green : Color.Red
+                            };
+
+                            // 📐 Center the label in the popup
+                            lblStatus.Location = new Point(
+                                (popup.ClientSize.Width - lblStatus.Width) / 2,
+                                (popup.ClientSize.Height - lblStatus.Height) / 2
+                            );
+
+                            popup.Controls.Add(lblStatus);
+
+                            popup.Show(this);
+
+                            // 🖊 Update groupBox text
+                            groupBox2.Text = groupBox2.Text.Split(new[] { " - Connected to:" }, StringSplitOptions.None)[0]
+                                + " - Connected to: " + ipAddress;
+
+                            // 🔒 Mark popup as opened
+                            popupOpened = true;
+
+                            // 🔄 Reset flag when popup closes
+                            popup.FormClosed += (s, args) =>
+                            {
+                                popupOpened = false;
+                            };
+                        }
+                        catch (Exception ex)
+                        {
+                            MessageBox.Show("Failed to open popup: " + ex.Message);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        ShowToast($"❌ Error: {ex.Message}", Color.Red);
+                    }
+                }
+                if (!popupOpened)
+                {
+                    try
+                    {
+                        // 🚫 Validate Reader IP
+                        if (string.IsNullOrEmpty(cmdIPEnrol.Text))
+                        {
+                            ShowToast("❌ Reader IP is required.", Color.Red);
+                            return;
+                        }
+
+                        // 📝 Gather IP address
+                        string ipAddress = cmdIPEnrol.Text.Trim();
+                        string username = string.Empty;
+                        string password = string.Empty;
+
+                        try
+                        {
+                            // 🗄 Fetch credentials from cloud database
+                            string connStr = Properties.Settings.Default.SQLCon;
+                            using (var conn = new SqlConnection(connStr))
+                            {
+                                await conn.OpenAsync();
+
+                                var cmd = new SqlCommand(@"
+                        SELECT Username, Password 
+                        FROM Readers 
+                        WHERE IPAddress = @IPAddress 
+                          AND SiteId = @SiteId", conn);
+
+                                cmd.Parameters.AddWithValue("@IPAddress", ipAddress);
+                                cmd.Parameters.AddWithValue("@SiteId", Properties.Settings.Default.SiteID);
+
+                                using (var reader = await cmd.ExecuteReaderAsync())
+                                {
+                                    if (await reader.ReadAsync())
+                                    {
+                                        username = reader.IsDBNull(0) ? "" : reader.GetString(0);
+                                        password = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                                    }
+                                    else
+                                    {
+                                        ShowToast("❌ No credentials found for this IP.", Color.Red);
+                                        return;
+                                    }
+                                }
+                            }
+
+                            // 📡 Ping the IP to check connectivity
+                            bool isReachable = false;
+                            using (var ping = new System.Net.NetworkInformation.Ping())
+                            {
+                                try
+                                {
+                                    var reply = await ping.SendPingAsync(ipAddress, 2000); // 2s timeout
+                                    isReachable = (reply.Status == IPStatus.Success);
+                                }
+                                catch
+                                {
+                                    isReachable = false;
+                                }
+                            }
+
+                            // 🔧 Ensure environment initialized
+                            if (_env == null)
+                            {
+                                _env = await CoreWebView2Environment.CreateAsync(
+                                    null,
+                                    "C:\\MyWebView2Data",
+                                    new CoreWebView2EnvironmentOptions("--ignore-certificate-errors"));
+                            }
+
+                            // 🌐 Build URL and show popup
+                            string url = $"https://{ipAddress}/doc/index.html#/portal/login";
+                            string popupTitle = isReachable
+                                ? $"SOH Employee Enrollment - {ipAddress} - Username: {username} - Password: {password}"
+                                : $"❌ Device Offline - {ipAddress} (No Ping Response)";
+
+                            var popup = new PopupBrowserForm(_env, url, username, password)
+                            {
+                                StartPosition = FormStartPosition.CenterParent,
+                                Width = 1000,
+                                Height = 800,
+                                Text = popupTitle
+                            };
+
+                            // ➕ Add bold centered label
+                            var lblStatus = new Label
+                            {
+                                Text = isReachable ? "✅ Device Online" : "❌ Device Offline",
+                                Font = new Font("Segoe UI", 16, FontStyle.Bold),
+                                AutoSize = true,
+                                ForeColor = isReachable ? Color.Green : Color.Red
+                            };
+
+                            // 📐 Center the label in the popup
+                            lblStatus.Location = new Point(
+                                (popup.ClientSize.Width - lblStatus.Width) / 2,
+                                (popup.ClientSize.Height - lblStatus.Height) / 2
+                            );
+
+                            popup.Controls.Add(lblStatus);
+
+                            popup.Show(this);
+
+                            // 🖊 Update groupBox text
+                            groupBox2.Text = groupBox2.Text.Split(new[] { " - Connected to:" }, StringSplitOptions.None)[0]
+                                + " - Connected to: " + ipAddress;
+
+                            // 🔒 Mark popup as opened
+                            popupOpened = true;
+
+                            // 🔄 Reset flag when popup closes
+                            popup.FormClosed += (s, args) =>
+                            {
+                                popupOpened = false;
+                            };
+                        }
+                        catch (Exception ex)
+                        {
+                            MessageBox.Show("Failed to open popup: " + ex.Message);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        ShowToast($"❌ Error: {ex.Message}", Color.Red);
+                    }
+                }
+            }
+        }
+
+        private void btnCloudConnAccess_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                // 🔄 If controls are already enabled, close them
+                if (txtCloudConnStr.Enabled && btnSaveCloudConn.Enabled)
+                {
+                    txtCloudConnStr.Enabled = false;
+                    btnSaveCloudConn.Enabled = false;
+
+                    btnCloudConnAccess.Text = "Open Settings";
+
+                    ShowToast("🔒 Cloud SQL settings closed.", Color.Blue);
+                    return;
+                }
+
+                // 🔒 Create a simple password prompt form
+                Form passwordForm = new Form
+                {
+                    Text = "Admin Authentication Required",
+                    StartPosition = FormStartPosition.CenterParent,
+                    Width = 400,
+                    Height = 180,
+                    FormBorderStyle = FormBorderStyle.FixedDialog,
+                    MaximizeBox = false,
+                    MinimizeBox = false
+                };
+
+                Label lblPrompt = new Label
+                {
+                    Text = "Enter Admin Password:",
+                    AutoSize = true,
+                    Location = new Point(20, 20)
+                };
+
+                TextBox txtPassword = new TextBox
+                {
+                    Location = new Point(20, 50),
+                    Width = 340,
+                    UseSystemPasswordChar = true
+                };
+
+                Button btnOk = new Button
+                {
+                    Text = "OK",
+                    Location = new Point(200, 90),
+                    DialogResult = DialogResult.OK
+                };
+
+                Button btnCancel = new Button
+                {
+                    Text = "Cancel",
+                    Location = new Point(280, 90),
+                    DialogResult = DialogResult.Cancel
+                };
+
+                passwordForm.Controls.Add(lblPrompt);
+                passwordForm.Controls.Add(txtPassword);
+                passwordForm.Controls.Add(btnOk);
+                passwordForm.Controls.Add(btnCancel);
+
+                passwordForm.AcceptButton = btnOk;
+                passwordForm.CancelButton = btnCancel;
+
+                // 🖊 Show the password form
+                if (passwordForm.ShowDialog(this) == DialogResult.OK)
+                {
+                    string enteredPassword = txtPassword.Text.Trim();
+
+                    // ✅ Check against stored admin password (replace with secure check)
+                    int adminPassword = Properties.Settings.Default.AdminPass;
+
+                    if (enteredPassword == adminPassword.ToString())
+                    {
+                        ShowToast("✅ Access Granted. Cloud SQL control enabled.", Color.Green);
+
+                        // Enable the protected controls
+                        txtCloudConnStr.Enabled = true;
+                        btnSaveCloudConn.Enabled = true;
+
+                        // Change button text to "Close Settings"
+                        btnCloudConnAccess.Text = "Close Settings";
+                    }
+                    else
+                    {
+                        ShowToast("❌ Invalid password. Access denied.", Color.Red);
+
+                        // Keep controls disabled
+                        txtCloudConnStr.Enabled = false;
+                        btnSaveCloudConn.Enabled = false;
+
+                        // Ensure button text stays "Open Settings"
+                        btnCloudConnAccess.Text = "Open Settings";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowToast($"❌ Error: {ex.Message}", Color.Red);
+            }
+        }
+
+
+        private void btnLocalSQLAdmin_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                // 🔄 If controls are already enabled, close them
+                if (txtLocalDB.Enabled && button1.Enabled)
+                {
+                    txtLocalDB.Enabled = false;
+                    button1.Enabled = false;
+
+                    btnLocalSQLAdmin.Text = "Open Settings";
+
+                    ShowToast("🔒 Local SQL settings closed.", Color.Blue);
+                    return;
+                }
+
+                // 🔒 Create a simple password prompt form
+                Form passwordForm = new Form
+                {
+                    Text = "Admin Authentication Required",
+                    StartPosition = FormStartPosition.CenterParent,
+                    Width = 400,
+                    Height = 180,
+                    FormBorderStyle = FormBorderStyle.FixedDialog,
+                    MaximizeBox = false,
+                    MinimizeBox = false
+                };
+
+                Label lblPrompt = new Label
+                {
+                    Text = "Enter Admin Password:",
+                    AutoSize = true,
+                    Location = new Point(20, 20)
+                };
+
+                TextBox txtPassword = new TextBox
+                {
+                    Location = new Point(20, 50),
+                    Width = 340,
+                    UseSystemPasswordChar = true
+                };
+
+                Button btnOk = new Button
+                {
+                    Text = "OK",
+                    Location = new Point(200, 90),
+                    DialogResult = DialogResult.OK
+                };
+
+                Button btnCancel = new Button
+                {
+                    Text = "Cancel",
+                    Location = new Point(280, 90),
+                    DialogResult = DialogResult.Cancel
+                };
+
+                passwordForm.Controls.Add(lblPrompt);
+                passwordForm.Controls.Add(txtPassword);
+                passwordForm.Controls.Add(btnOk);
+                passwordForm.Controls.Add(btnCancel);
+
+                passwordForm.AcceptButton = btnOk;
+                passwordForm.CancelButton = btnCancel;
+
+                // 🖊 Show the password form
+                if (passwordForm.ShowDialog(this) == DialogResult.OK)
+                {
+                    string enteredPassword = txtPassword.Text.Trim();
+
+                    // ✅ Check against stored admin password (replace with secure check)
+                    int adminPassword = Properties.Settings.Default.AdminPass;
+
+                    if (enteredPassword == adminPassword.ToString())
+                    {
+                        ShowToast("✅ Access Granted. Local SQL control enabled.", Color.Green);
+
+                        // Enable the protected controls
+                        txtLocalDB.Enabled = true;
+                        button1.Enabled = true;
+
+                        // Change button text to "Close Settings"
+                        btnLocalSQLAdmin.Text = "Close Settings";
+                    }
+                    else
+                    {
+                        ShowToast("❌ Invalid password. Access denied.", Color.Red);
+
+                        // Keep controls disabled
+                        txtLocalDB.Enabled = false;
+                        button1.Enabled = false;
+
+                        // Ensure button text stays "Open Settings"
+                        btnLocalSQLAdmin.Text = "Open Settings";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowToast($"❌ Error: {ex.Message}", Color.Red);
+            }
+        }
+
+        private void dgvEmployees_CellClick(object sender, DataGridViewCellEventArgs e)
+        {
+            // 🖊 When user finishes editing a cell, mark the row as modified
+            if (e.RowIndex >= 0)
+            {
+                DataGridViewRow row = dgvEmployees.Rows[e.RowIndex];
+                row.DefaultCellStyle.BackColor = Color.LightYellow; // Mark as modified
+            }
+        }
+
+        private void btnSystemAdmin_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                // 🔄 If controls are already enabled, close them
+                if (groupBox8.Enabled && groupBox9.Enabled)
+                {
+                    groupBox8.Enabled = false;
+                    groupBox9.Enabled = false;
+
+                    btnSystemAdmin.Text = "Open Settings";
+
+                    ShowToast("🔒 System Admin settings closed.", Color.Blue);
+                    return;
+                }
+
+                // 🔒 Create a simple password prompt form
+                Form passwordForm = new Form
+                {
+                    Text = "Admin Authentication Required",
+                    StartPosition = FormStartPosition.CenterParent,
+                    Width = 400,
+                    Height = 180,
+                    FormBorderStyle = FormBorderStyle.FixedDialog,
+                    MaximizeBox = false,
+                    MinimizeBox = false
+                };
+
+                Label lblPrompt = new Label
+                {
+                    Text = "Enter Admin Password:",
+                    AutoSize = true,
+                    Location = new Point(20, 20)
+                };
+
+                TextBox txtPassword = new TextBox
+                {
+                    Location = new Point(20, 50),
+                    Width = 340,
+                    UseSystemPasswordChar = true
+                };
+
+                Button btnOk = new Button
+                {
+                    Text = "OK",
+                    Location = new Point(200, 90),
+                    DialogResult = DialogResult.OK
+                };
+
+                Button btnCancel = new Button
+                {
+                    Text = "Cancel",
+                    Location = new Point(280, 90),
+                    DialogResult = DialogResult.Cancel
+                };
+
+                passwordForm.Controls.Add(lblPrompt);
+                passwordForm.Controls.Add(txtPassword);
+                passwordForm.Controls.Add(btnOk);
+                passwordForm.Controls.Add(btnCancel);
+
+                passwordForm.AcceptButton = btnOk;
+                passwordForm.CancelButton = btnCancel;
+
+                // 🖊 Show the password form
+                if (passwordForm.ShowDialog(this) == DialogResult.OK)
+                {
+                    string enteredPassword = txtPassword.Text.Trim();
+
+                    // ✅ Check against stored admin password (replace with secure check)
+                    int adminPassword = Properties.Settings.Default.AdminPass;
+
+                    if (enteredPassword == adminPassword.ToString())
+                    {
+                        ShowToast("✅ Access Granted. System Admin controls enabled.", Color.Green);
+
+                        // Enable the protected controls
+                        groupBox8.Enabled = true;
+                        groupBox9.Enabled = true;
+
+                        // Change button text to "Close Settings"
+                        btnSystemAdmin.Text = "Close Settings";
+                    }
+                    else
+                    {
+                        ShowToast("❌ Invalid password. Access denied.", Color.Red);
+
+                        // Keep controls disabled
+                        groupBox8.Enabled = false;
+                        groupBox9.Enabled = false;
+
+                        // Ensure button text stays "Open Settings"
+                        btnSystemAdmin.Text = "Open Settings";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowToast($"❌ Error: {ex.Message}", Color.Red);
+            }
+        }
+
+    }
+
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,27 @@
+﻿<?xml version='1.0' encoding='utf-8'?>
+<SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="SOHmiddleware.Properties" GeneratedClassName="Settings">
+  <Profiles />
+  <Settings>
+    <Setting Name="SQLCon" Type="System.String" Scope="User">
+      <Value Profile="(Default)">Data Source=SQL5088.site4now.net;Initial Catalog=db_a8935f_slr;User Id=db_a8935f_slr_admin;Password=0925Greg#</Value>
+    </Setting>
+    <Setting Name="LocalSQLiteCon" Type="System.String" Scope="User">
+      <Value Profile="(Default)">Data Source=C:\Users\Greg Adler\SQLdb\localbuffer.db;Version=3;</Value>
+    </Setting>
+    <Setting Name="SyncIntervalMinutes" Type="System.Int32" Scope="User">
+      <Value Profile="(Default)">1</Value>
+    </Setting>
+    <Setting Name="SiteID" Type="System.String" Scope="User">
+      <Value Profile="(Default)">DBN001</Value>
+    </Setting>
+    <Setting Name="SQLmyASP" Type="System.String" Scope="User">
+      <Value Profile="(Default)">Data Source=SQL5088.site4now.net;Initial Catalog=db_a8935f_slr;User Id=db_a8935f_slr_admin;Password=0925Greg#</Value>
+    </Setting>
+    <Setting Name="SQLBackUp" Type="System.String" Scope="User">
+      <Value Profile="(Default)">Data Source=ICONNECTIVITY\SQLEXPRESS;Initial Catalog=SOHdb;Integrated Security=True</Value>
+    </Setting>
+    <Setting Name="AdminPass" Type="System.Int32" Scope="User">
+      <Value Profile="(Default)">2026</Value>
+    </Setting>
+  </Settings>
+</SettingsFile>

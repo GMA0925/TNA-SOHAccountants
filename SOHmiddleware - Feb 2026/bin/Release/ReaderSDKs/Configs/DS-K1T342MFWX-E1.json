@@ -1,0 +1,10 @@
+{
+  "model": "DS-K1T342MFWX-E1",
+  "commands": {
+    "read": "DS342F_READ",
+    "reset": "DS342F_RESET",
+    "status": "DS342F_STATUS",
+    "capture": "DS342F_CAPTURE",
+    "verify": "DS342F_VERIFY"
+  }
+}

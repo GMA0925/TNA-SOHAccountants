@@ -1,0 +1,185 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{00000000-0000-0000-0000-000000000000}|\u003CSolution\u003E|SOHmiddleware||{04B8AB82-A572-4FEF-95CE-5222444B6B64}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|c:\\dev projects\\soh solutions\\sohmiddleware - feb 2026\\form1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form",
+      "RelativeMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|solutionrelative:form1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\form1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|solutionrelative:form1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\form1.designer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|solutionrelative:form1.designer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|solutionrelative:program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\login.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|solutionrelative:login.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\login.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form",
+      "RelativeMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|solutionrelative:login.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\cloudsqlservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|solutionrelative:cloudsqlservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\readeremulator.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|solutionrelative:readeremulator.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\dashboardmetrics.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|solutionrelative:dashboardmetrics.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{22205013-A4F8-42A3-B390-1A0F2FFA130F}|SOHmiddleware.csproj|c:\\dev projects\\soh solutions\\sohmiddleware - feb 2026\\||{B270807C-D8C6-49EB-8EBE-8E8D566637A1}|cc4014f5-b18d-439c-9352-f99d984cca85"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 2,
+          "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{57d563b6-44a5-47df-85be-f4199ad6b651}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "Form1.Designer.cs",
+              "DocumentMoniker": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\Form1.Designer.cs",
+              "RelativeDocumentMoniker": "Form1.Designer.cs",
+              "ToolTip": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\Form1.Designer.cs",
+              "RelativeToolTip": "Form1.Designer.cs",
+              "ViewState": "AgIAABAEAAAAAAAAAAAqwCkEAABmAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-24T06:20:46.991Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "SOHmiddleware",
+              "DocumentMoniker": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\SOHmiddleware.csproj",
+              "RelativeDocumentMoniker": "SOHmiddleware.csproj",
+              "ToolTip": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\SOHmiddleware.csproj",
+              "RelativeToolTip": "SOHmiddleware.csproj",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-02-12T12:42:36.76Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "Form1.cs [Design]",
+              "DocumentMoniker": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\Form1.cs",
+              "RelativeDocumentMoniker": "Form1.cs",
+              "ToolTip": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\Form1.cs [Design]",
+              "RelativeToolTip": "Form1.cs [Design]",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-01-13T11:25:37.72Z",
+              "EditorCaption": " [Design]"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "Form1.cs",
+              "DocumentMoniker": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\Form1.cs",
+              "RelativeDocumentMoniker": "Form1.cs",
+              "ToolTip": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\Form1.cs",
+              "RelativeToolTip": "Form1.cs",
+              "ViewState": "AgIAAOoFAAAAAAAAAAAiwPMNAAAgAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-19T12:27:32.371Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "ReaderEmulator.cs",
+              "DocumentMoniker": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\ReaderEmulator.cs",
+              "RelativeDocumentMoniker": "ReaderEmulator.cs",
+              "ToolTip": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\ReaderEmulator.cs",
+              "RelativeToolTip": "ReaderEmulator.cs",
+              "ViewState": "AgIAABgAAAAAAAAAAAAkwB4AAAANAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-25T08:25:51.831Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "CloudSqlService.cs",
+              "DocumentMoniker": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\CloudSqlService.cs",
+              "RelativeDocumentMoniker": "CloudSqlService.cs",
+              "ToolTip": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\CloudSqlService.cs",
+              "RelativeToolTip": "CloudSqlService.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA4AAAAJAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-22T04:49:22.415Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
+              "Title": "DashboardMetrics.cs",
+              "DocumentMoniker": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\DashboardMetrics.cs",
+              "RelativeDocumentMoniker": "DashboardMetrics.cs",
+              "ToolTip": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\DashboardMetrics.cs",
+              "RelativeToolTip": "DashboardMetrics.cs",
+              "ViewState": "AgIAAAMAAAAAAAAAAAAAABIAAAAJAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-20T16:17:32.465Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "Program.cs",
+              "DocumentMoniker": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\Program.cs",
+              "RelativeDocumentMoniker": "Program.cs",
+              "ToolTip": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\Program.cs",
+              "RelativeToolTip": "Program.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAACIAAAApAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-20T01:32:31.924Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "Login.cs",
+              "DocumentMoniker": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\Login.cs",
+              "RelativeDocumentMoniker": "Login.cs",
+              "ToolTip": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\Login.cs",
+              "RelativeToolTip": "Login.cs",
+              "ViewState": "AgIAACsAAAAAAAAAAAAswC8AAAAQAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-19T12:11:41.877Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "Login.cs [Design]",
+              "DocumentMoniker": "C:\\Dev Projects\\SOH Solutions\\SOHmiddleware - Feb 2026\\Login.cs",
+              "RelativeDocumentMoniker": "Login.cs",
+              "ToolTip": "D:\\SOH Solutions\\SOHmiddleware - Copy\\Login.cs [Design]",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-19T12:00:35.892Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

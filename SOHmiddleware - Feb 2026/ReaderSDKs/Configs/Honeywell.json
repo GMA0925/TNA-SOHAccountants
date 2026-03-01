@@ -1,0 +1,8 @@
+{
+  "model": "Honeywell 1900",
+  "commands": {
+    "read": "HW_READ",
+    "reset": "HW_RESET",
+    "status": "HW_STATUS"
+  }
+}

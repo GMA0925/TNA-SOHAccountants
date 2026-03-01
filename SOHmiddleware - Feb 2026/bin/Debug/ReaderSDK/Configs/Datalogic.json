@@ -1,0 +1,8 @@
+{
+  "model": "Datalogic Gryphon",
+  "commands": {
+    "read": "DL_READ",
+    "reset": "DL_RESET",
+    "status": "DL_STATUS"
+  }
+}

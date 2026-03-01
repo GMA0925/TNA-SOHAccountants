@@ -1,0 +1,10 @@
+{
+  "model": "DS-K1T807MBFWX-E1",
+  "commands": {
+    "read": "DS807_READ",
+    "reset": "DS807_RESET",
+    "status": "DS807_STATUS",
+    "capture": "DS807_CAPTURE",
+    "verify": "DS807_VERIFY"
+  }
+}

@@ -1,0 +1,45 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+    <configSections>
+        <sectionGroup name="userSettings" type="System.Configuration.UserSettingsGroup, System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+            <section name="SOHmiddleware.Properties.Settings" type="System.Configuration.ClientSettingsSection, System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089" allowExeDefinition="MachineToLocalUser" requirePermission="false" />
+        </sectionGroup>
+    </configSections>
+    <startup> 
+        <supportedRuntime version="v4.0" sku=".NETFramework,Version=v4.8.1" />
+    </startup>
+    <userSettings>
+        <SOHmiddleware.Properties.Settings>
+            <setting name="SQLCon" serializeAs="String">
+                <value>Data Source=SQL5088.site4now.net;Initial Catalog=db_a8935f_slr;User Id=db_a8935f_slr_admin;Password=0925Greg#</value>
+            </setting>
+            <setting name="LocalSQLiteCon" serializeAs="String">
+                <value>Data Source=SQLdb\localbuffer.db;Version=3</value>
+            </setting>
+            <setting name="SyncIntervalMinutes" serializeAs="String">
+                <value>1</value>
+            </setting>
+            <setting name="SiteID" serializeAs="String">
+                <value>DBN001</value>
+            </setting>
+            <setting name="SQLmyASP" serializeAs="String">
+                <value>Data Source=SQL5088.site4now.net;Initial Catalog=db_a8935f_slr;User Id=db_a8935f_slr_admin;Password=0925Greg#</value>
+            </setting>
+            <setting name="SQLBackUp" serializeAs="String">
+                <value>Data Source=ICONNECTIVITY\SQLEXPRESS;Initial Catalog=SOHdb;Integrated Security=True</value>
+            </setting>
+        </SOHmiddleware.Properties.Settings>
+    </userSettings>
+  <runtime>
+    <assemblyBinding xmlns="urn:schemas-microsoft-com:asm.v1">
+      <dependentAssembly>
+        <assemblyIdentity name="System.Memory" publicKeyToken="cc7b13ffcd2ddd51" culture="neutral" />
+        <bindingRedirect oldVersion="0.0.0.0-4.0.5.0" newVersion="4.0.5.0" />
+      </dependentAssembly>
+      <dependentAssembly>
+        <assemblyIdentity name="SQLitePCLRaw.core" publicKeyToken="1488e028ca7ab535" culture="neutral" />
+        <bindingRedirect oldVersion="0.0.0.0-3.0.2.2801" newVersion="3.0.2.2801" />
+      </dependentAssembly>
+    </assemblyBinding>
+  </runtime>
+</configuration>

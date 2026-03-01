@@ -1,0 +1,8 @@
+// Zebra.json
+{
+  "model": "Zebra X100",
+  "commands": {
+    "read": "ZB_READ",
+    "reset": "ZB_RESET"
+  }
+}

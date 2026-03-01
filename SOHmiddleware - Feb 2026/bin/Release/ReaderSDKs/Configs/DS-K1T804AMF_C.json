@@ -1,0 +1,10 @@
+{
+  "model": "DS-K1T804AMF_C",
+  "commands": {
+    "read": "DS804_READ",
+    "reset": "DS804_RESET",
+    "status": "DS804_STATUS",
+    "capture": "DS804_CAPTURE",
+    "verify": "DS804_VERIFY"
+  }
+}

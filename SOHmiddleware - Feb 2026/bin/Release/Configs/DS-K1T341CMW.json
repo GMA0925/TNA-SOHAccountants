@@ -1,0 +1,10 @@
+{
+  "model": "DS-K1T341CMW",
+  "commands": {
+    "read": "DS_READ",
+    "reset": "DS_RESET",
+    "status": "DS_STATUS",
+    "capture": "DS_CAPTURE",
+    "verify": "DS_VERIFY"
+  }
+}

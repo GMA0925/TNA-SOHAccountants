@@ -1,0 +1,10 @@
+{
+  "model": "DS-K1T502DBFWX-C",
+  "commands": {
+    "read": "DS502_READ",
+    "reset": "DS502_RESET",
+    "status": "DS502_STATUS",
+    "capture": "DS502_CAPTURE",
+    "verify": "DS502_VERIFY"
+  }
+}
