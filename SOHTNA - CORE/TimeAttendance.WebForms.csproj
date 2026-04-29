@@ -1,0 +1,272 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyTitle>SOHTNA</AssemblyTitle>
+    <Product>SOHTNA</Product>
+    <Copyright>Copyright ©  2026</Copyright>
+    <AssemblyVersion>2026.04.06.3034</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="bootstrap" Version="3.4.1" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
+    <PackageReference Include="ClosedXML" Version="0.105.0" />
+    <PackageReference Include="ClosedXML.Parser" Version="2.0.0" />
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.1.1" />
+    <PackageReference Include="DocumentFormat.OpenXml.Framework" Version="3.1.1" />
+    <PackageReference Include="ExcelNumberFormat" Version="1.1.0" />
+    <PackageReference Include="iTextSharp" Version="5.5.13.3" />
+    <PackageReference Include="itextsharp.xmlworker" Version="5.5.13.3" />
+    <PackageReference Include="jQuery" Version="3.7.1" />
+    <PackageReference Include="Microsoft.Bcl.HashCode" Version="6.0.0" />
+    <PackageReference Include="Modernizr" Version="2.8.3" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="RBush.Signed" Version="4.0.0" />
+    <PackageReference Include="SixLabors.Fonts" Version="1.0.0" />
+    <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="6.1.2" />
+    <PackageReference Include="WebGrease" Version="1.6.0" />
+    <PackageReference Include="XLParser" Version="1.5.2" />
+    <PackageReference Include="Microsoft.AspNetCore.SystemWebAdapters" Version="2.3.0" />
+    <PackageReference Include="Antlr4" Version="4.6.6" />
+    <PackageReference Include="LigerShark.WebOptimizer.Core" Version="3.0.477" />
+    <PackageReference Include="System.Configuration.ConfigurationManager" Version="10.0.5" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Update="About.aspx.cs">
+      <DependentUpon>About.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="About.aspx.designer.cs">
+      <DependentUpon>About.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="AdminPanel.aspx.cs">
+      <DependentUpon>AdminPanel.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="AdminPanel.aspx.designer.cs">
+      <DependentUpon>AdminPanel.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="AuditTrail.aspx.cs">
+      <DependentUpon>AuditTrail.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="AuditTrail.aspx.designer.cs">
+      <DependentUpon>AuditTrail.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="ComplianceReports.aspx.cs">
+      <DependentUpon>ComplianceReports.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="ComplianceReports.aspx.designer.cs">
+      <DependentUpon>ComplianceReports.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="ComplianceStatus.aspx.cs">
+      <DependentUpon>ComplianceStatus.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="ComplianceStatus.aspx.designer.cs">
+      <DependentUpon>ComplianceStatus.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="ComplianceViolations.aspx.cs">
+      <DependentUpon>ComplianceViolations.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="ComplianceViolations.aspx.designer.cs">
+      <DependentUpon>ComplianceViolations.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="ConfigTools.aspx.cs">
+      <DependentUpon>ConfigTools.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="ConfigTools.aspx.designer.cs">
+      <DependentUpon>ConfigTools.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="Contact.aspx.cs">
+      <DependentUpon>Contact.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="Contact.aspx.designer.cs">
+      <DependentUpon>Contact.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="Dashboard.aspx.cs">
+      <DependentUpon>Dashboard.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="Dashboard.aspx.designer.cs">
+      <DependentUpon>Dashboard.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="DataAccessLog.aspx.cs">
+      <DependentUpon>DataAccessLog.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="DataAccessLog.aspx.designer.cs">
+      <DependentUpon>DataAccessLog.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="Default.aspx.cs">
+      <DependentUpon>Default.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="Default.aspx.designer.cs">
+      <DependentUpon>Default.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="EmployeeDocuments.aspx.cs">
+      <DependentUpon>EmployeeDocuments.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="EmployeeDocuments.aspx.designer.cs">
+      <DependentUpon>EmployeeDocuments.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="EmployeePayslips.aspx.cs">
+      <DependentUpon>EmployeePayslips.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="EmployeePayslips.aspx.designer.cs">
+      <DependentUpon>EmployeePayslips.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="Employees.aspx.cs">
+      <DependentUpon>Employees.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="Employees.aspx.designer.cs">
+      <DependentUpon>Employees.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="EmployeeSelfService.aspx.cs">
+      <DependentUpon>EmployeeSelfService.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="EmployeeSelfService.aspx.designer.cs">
+      <DependentUpon>EmployeeSelfService.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="EmployeeSettings.aspx.cs">
+      <DependentUpon>EmployeeSettings.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="EmployeeSettings.aspx.designer.cs">
+      <DependentUpon>EmployeeSettings.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="ForgotPassword.aspx.cs">
+      <DependentUpon>ForgotPassword.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="ForgotPassword.aspx.designer.cs">
+      <DependentUpon>ForgotPassword.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="Login.aspx.cs">
+      <DependentUpon>Login.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="Login.aspx.designer.cs">
+      <DependentUpon>Login.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="MyClockEvents.aspx.cs">
+      <DependentUpon>MyClockEvents.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="MyClockEvents.aspx.designer.cs">
+      <DependentUpon>MyClockEvents.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="Navigation.ascx.cs">
+      <DependentUpon>Navigation.ascx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="NotificationSettings.aspx.cs">
+      <DependentUpon>NotificationSettings.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="NotificationSettings.aspx.designer.cs">
+      <DependentUpon>NotificationSettings.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="PayrollCalculation.aspx.cs">
+      <DependentUpon>PayrollCalculation.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="PayrollCalculation.aspx.designer.cs">
+      <DependentUpon>PayrollCalculation.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="Reports.aspx.cs">
+      <DependentUpon>Reports.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="Reports.aspx.designer.cs">
+      <DependentUpon>Reports.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="ShiftManagement.aspx.cs">
+      <DependentUpon>ShiftManagement.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="ShiftManagement.aspx.designer.cs">
+      <DependentUpon>ShiftManagement.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="Site.Master.cs">
+      <DependentUpon>Site.Master</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="Site.Master.designer.cs">
+      <DependentUpon>Site.Master</DependentUpon>
+    </Compile>
+    <Compile Update="Site.Mobile.Master.cs">
+      <DependentUpon>Site.Mobile.Master</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="Site.Mobile.Master.designer.cs">
+      <DependentUpon>Site.Mobile.Master</DependentUpon>
+    </Compile>
+    <Compile Update="SyncLog.aspx.cs">
+      <DependentUpon>SyncLog.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="SyncLog.aspx.designer.cs">
+      <DependentUpon>SyncLog.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="SystemSettings.aspx.cs">
+      <DependentUpon>SystemSettings.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="SystemSettings.aspx.designer.cs">
+      <DependentUpon>SystemSettings.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="TimesheetApproval.aspx.cs">
+      <DependentUpon>TimesheetApproval.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="TimesheetApproval.aspx.designer.cs">
+      <DependentUpon>TimesheetApproval.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="TimesheetEntry.aspx.cs">
+      <DependentUpon>TimesheetEntry.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="TimesheetEntry.aspx.designer.cs">
+      <DependentUpon>TimesheetEntry.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="TimesheetHistory.aspx.cs">
+      <DependentUpon>TimesheetHistory.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="TimesheetHistory.aspx.designer.cs">
+      <DependentUpon>TimesheetHistory.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="UserManagement.aspx.cs">
+      <DependentUpon>UserManagement.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="UserManagement.aspx.designer.cs">
+      <DependentUpon>UserManagement.aspx</DependentUpon>
+    </Compile>
+    <Compile Update="ViewSwitcher.ascx.cs">
+      <DependentUpon>ViewSwitcher.ascx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Update="ViewSwitcher.ascx.designer.cs">
+      <DependentUpon>ViewSwitcher.ascx</DependentUpon>
+    </Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Web.Debug.config">
+      <DependentUpon>Web.config</DependentUpon>
+    </None>
+    <None Include="Web.Release.config">
+      <DependentUpon>Web.config</DependentUpon>
+    </None>
+  </ItemGroup>
+</Project>

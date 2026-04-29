@@ -1,0 +1,109 @@
+# QUICK REFERENCE: Fix SiteId Error
+
+## The Problem
+```
+?? You do not have a site assigned. Contact your administrator.
+```
+**Root Cause:** Your login user's `SiteId` in the database is NULL
+
+---
+
+## The Solution (Copy & Paste)
+
+### Step 1: Open SQL Server Management Studio
+
+### Step 2: Run This SQL Command
+```sql
+-- Replace 'your_username' with your actual login username
+UPDATE Users SET SiteId = 1 WHERE Username = 'your_username' AND SiteId IS NULL;
+
+-- Verify it worked
+SELECT Username, SiteId FROM Users WHERE Username = 'your_username';
+```
+
+**Expected output:**
+```
+Username      SiteId
+your_username  1
+```
+
+### Step 3: Restart IIS (Windows only)
+```powershell
+# Open Command Prompt as Administrator, then run:
+iisreset
+```
+
+### Step 4: Test Login
+- Clear browser cache (Ctrl+Shift+Delete)
+- Close browser completely
+- Reopen browser
+- Try logging in again
+
+---
+
+## If You Have Multiple Test Users
+
+```sql
+-- Fix ALL users at once
+UPDATE Users SET SiteId = 1 WHERE SiteId IS NULL;
+
+-- Verify all users now have SiteId
+SELECT Username, SiteId FROM Users WHERE IsActive = 1;
+```
+
+---
+
+## What Changed in Code
+
+| File | Change | Impact |
+|------|--------|--------|
+| Login.aspx.cs | Now validates SiteId is not NULL | Shows clear error message instead of generic failure |
+| EmployeeEnrollment.aspx.cs | Removed popups from page load | Page loads cleanly, errors only on user action |
+
+---
+
+## FAQ
+
+**Q: Why is this happening?**
+A: The `Users` table is missing SiteId values. This is how the system knows which site each user belongs to.
+
+**Q: What is SiteId?**
+A: It identifies which site/location the user works at. All data (employees, departments, shifts) is filtered by this.
+
+**Q: Will I see all sites' data?**
+A: No. After the fix, you'll only see data from your assigned site.
+
+**Q: Where do I run the SQL?**
+A: SQL Server Management Studio ? Your Database ? New Query ? Paste SQL ? Execute (F5)
+
+**Q: Do I need to restart the application?**
+A: Restart IIS or restart the AppPool if it's production. For localhost, just clear cache and reopen browser.
+
+---
+
+## Verification
+
+After the fix, verify with:
+```sql
+-- This should show your user with a SiteId value (like 1, 2, 3, etc)
+SELECT Username, NameSurname, Role, SiteId 
+FROM Users 
+WHERE Username = 'your_username';
+```
+
+---
+
+## Still Having Issues?
+
+1. Confirm you ran the SQL UPDATE command
+2. Confirm the UPDATE said "1 row affected"
+3. Confirm IIS was restarted
+4. Confirm browser cache is cleared
+5. Confirm you closed the browser completely before reopening
+
+If still broken, check Debug Output in Visual Studio:
+- Run app
+- Attempt login
+- Check: Debug ? Windows ? Output
+- Look for messages like: `Login failed: SiteId is NULL`
+

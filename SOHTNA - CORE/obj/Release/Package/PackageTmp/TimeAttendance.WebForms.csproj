@@ -1,0 +1,649 @@
+﻿<Project ToolsVersion="15.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="packages\Microsoft.CodeDom.Providers.DotNetCompilerPlatform.2.0.1\build\net46\Microsoft.CodeDom.Providers.DotNetCompilerPlatform.props" Condition="Exists('packages\Microsoft.CodeDom.Providers.DotNetCompilerPlatform.2.0.1\build\net46\Microsoft.CodeDom.Providers.DotNetCompilerPlatform.props')" />
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProductVersion>
+    </ProductVersion>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>{B2E72FEF-DA35-402E-92EF-A8AD17DE6603}</ProjectGuid>
+    <ProjectTypeGuids>{349c5851-65df-11da-9384-00065b846f21};{fae04ec0-301f-11d3-bf4b-00c04f79efbc}</ProjectTypeGuids>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>TimeAttendance.WebForms</RootNamespace>
+    <AssemblyName>TimeAttendance.WebForms</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <UseIISExpress>true</UseIISExpress>
+    <Use64BitIISExpress />
+    <IISExpressSSLPort>44385</IISExpressSSLPort>
+    <IISExpressAnonymousAuthentication />
+    <IISExpressWindowsAuthentication />
+    <IISExpressUseClassicPipelineMode />
+    <UseGlobalApplicationHostFile />
+    <NuGetPackageImportStamp>
+    </NuGetPackageImportStamp>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Web.DynamicData" />
+    <Reference Include="System.Web.Entity" />
+    <Reference Include="System.Web.ApplicationServices" />
+    <Reference Include="System.ComponentModel.DataAnnotations" />
+    <Reference Include="System" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Data.DataSetExtensions" />
+    <Reference Include="System.Web.Extensions" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Web" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Configuration" />
+    <Reference Include="System.Web.Services" />
+    <Reference Include="System.EnterpriseServices" />
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="Microsoft.CodeDom.Providers.DotNetCompilerPlatform">
+      <HintPath>packages\Microsoft.CodeDom.Providers.DotNetCompilerPlatform.2.0.1\lib\net45\Microsoft.CodeDom.Providers.DotNetCompilerPlatform.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="About.aspx" />
+    <Content Include="AdminPanel.aspx" />
+    <Content Include="AuditTrail.aspx" />
+    <Content Include="CleanupDuplicates_SiteID_Update.sql" />
+    <Content Include="ComplianceReports.aspx" />
+    <Content Include="ComplianceStatus.aspx" />
+    <Content Include="ComplianceViolations.aspx" />
+    <Content Include="ConfigTools.aspx" />
+    <Content Include="Contact.aspx" />
+    <Content Include="Dashboard.aspx" />
+    <Content Include="DataAccessLog.aspx" />
+    <Content Include="Default.aspx" />
+    <Content Include="DELETE_EMPLOYEES_FOR_SYNC.sql" />
+    <Content Include="DIAGNOSE_EMPLOYEE_PROFILE_FIX.sql" />
+    <Content Include="EmployeeDocuments.aspx" />
+    <Content Include="EmployeePayslips.aspx" />
+    <Content Include="Employees.aspx" />
+    <Content Include="EmployeeSelfService.aspx" />
+    <Content Include="EmployeeSettings.aspx" />
+    <Content Include="favicon.ico" />
+    <Content Include="FIX_ALL_SITEID_COLUMNS_COMPLETE.sql" />
+    <Content Include="FIX_ALL_SITEID_COLUMNS_COMPREHENSIVE.sql" />
+    <Content Include="FIX_ALL_SITEID_COLUMNS_FINAL.sql" />
+    <Content Include="FIX_ALL_SITEID_COLUMNS_WITH_INDEXES.sql" />
+    <Content Include="FIX_ALL_SITEID_FINAL_CLEAN.sql" />
+    <Content Include="FIX_ALL_SITEID_FINAL_IDENTITY_AWARE.sql" />
+    <Content Include="FIX_ALL_SITEID_FINAL_SMART.sql" />
+    <Content Include="FIX_EMPLOYEES_SITEID_BULLETPROOF.sql" />
+    <Content Include="FIX_EMPLOYEES_TABLE_SCHEMA.sql" />
+    <Content Include="FIX_SITEID_SIMPLE.sql" />
+    <Content Include="ForgotPassword.aspx" />
+    <Content Include="Global.asax" />
+    <Content Include="Login.aspx" />
+    <Content Include="MyClockEvents.aspx" />
+    <Content Include="Navigation.ascx" />
+    <Content Include="NotificationSettings.aspx" />
+    <Content Include="PayrollCalculation.aspx" />
+    <Content Include="QUICK_FIX.txt" />
+    <Content Include="QUICK_REFERENCE_Visual_SiteId.txt" />
+    <Content Include="Reports.aspx" />
+    <Content Include="ShiftManagement.aspx" />
+    <Content Include="SyncLog.aspx" />
+    <Content Include="SystemSettings.aspx" />
+    <Content Include="TimeAttendance.WebForms.csproj.user" />
+    <Content Include="TimeAttendance.WebForms.sln" />
+    <Content Include="TimesheetApproval.aspx" />
+    <Content Include="TimesheetEntry.aspx" />
+    <Content Include="TimesheetHistory.aspx" />
+    <Content Include="UPDATE_SITEID_TO_NVARCHAR_MAX.sql" />
+    <Content Include="UpgradeLog.htm" />
+    <Content Include="UpgradeLog2.htm" />
+    <Content Include="UpgradeLog3.htm" />
+    <Content Include="UpgradeLog4.htm" />
+    <Content Include="UpgradeLog5.htm" />
+    <Content Include="UpgradeLog6.htm" />
+    <Content Include="UpgradeLog7.htm" />
+    <Content Include="UserManagement.aspx" />
+    <Content Include="ViewSwitcher.ascx" />
+    <Content Include="Web.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="About.aspx.cs">
+      <DependentUpon>About.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="About.aspx.designer.cs">
+      <DependentUpon>About.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="AdminPanel.aspx.cs">
+      <DependentUpon>AdminPanel.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="AdminPanel.aspx.designer.cs">
+      <DependentUpon>AdminPanel.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="AuditTrail.aspx.cs">
+      <DependentUpon>AuditTrail.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="AuditTrail.aspx.designer.cs">
+      <DependentUpon>AuditTrail.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="ComplianceReports.aspx.cs">
+      <DependentUpon>ComplianceReports.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="ComplianceReports.aspx.designer.cs">
+      <DependentUpon>ComplianceReports.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="ComplianceStatus.aspx.cs">
+      <DependentUpon>ComplianceStatus.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="ComplianceStatus.aspx.designer.cs">
+      <DependentUpon>ComplianceStatus.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="ComplianceViolations.aspx.cs">
+      <DependentUpon>ComplianceViolations.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="ComplianceViolations.aspx.designer.cs">
+      <DependentUpon>ComplianceViolations.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="ConfigTools.aspx.cs">
+      <DependentUpon>ConfigTools.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="ConfigTools.aspx.designer.cs">
+      <DependentUpon>ConfigTools.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="Contact.aspx.cs">
+      <DependentUpon>Contact.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Contact.aspx.designer.cs">
+      <DependentUpon>Contact.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="Dashboard.aspx.cs">
+      <DependentUpon>Dashboard.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Dashboard.aspx.designer.cs">
+      <DependentUpon>Dashboard.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="DataAccessLog.aspx.cs">
+      <DependentUpon>DataAccessLog.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="DataAccessLog.aspx.designer.cs">
+      <DependentUpon>DataAccessLog.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="Default.aspx.cs">
+      <DependentUpon>Default.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Default.aspx.designer.cs">
+      <DependentUpon>Default.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="EmployeeDocuments.aspx.cs">
+      <DependentUpon>EmployeeDocuments.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="EmployeeDocuments.aspx.designer.cs">
+      <DependentUpon>EmployeeDocuments.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="EmployeePayslips.aspx.cs">
+      <DependentUpon>EmployeePayslips.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="EmployeePayslips.aspx.designer.cs">
+      <DependentUpon>EmployeePayslips.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="Employees.aspx.cs">
+      <DependentUpon>Employees.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Employees.aspx.designer.cs">
+      <DependentUpon>Employees.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="EmployeeSelfService.aspx.cs">
+      <DependentUpon>EmployeeSelfService.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="EmployeeSelfService.aspx.designer.cs">
+      <DependentUpon>EmployeeSelfService.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="EmployeeSettings.aspx.cs">
+      <DependentUpon>EmployeeSettings.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="EmployeeSettings.aspx.designer.cs">
+      <DependentUpon>EmployeeSettings.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="ForgotPassword.aspx.cs">
+      <DependentUpon>ForgotPassword.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="ForgotPassword.aspx.designer.cs">
+      <DependentUpon>ForgotPassword.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="Global.asax.cs">
+      <DependentUpon>Global.asax</DependentUpon>
+    </Compile>
+    <Compile Include="Login.aspx.cs">
+      <DependentUpon>Login.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Login.aspx.designer.cs">
+      <DependentUpon>Login.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="MyClockEvents.aspx.cs">
+      <DependentUpon>MyClockEvents.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="MyClockEvents.aspx.designer.cs">
+      <DependentUpon>MyClockEvents.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="Navigation.ascx.cs">
+      <DependentUpon>Navigation.ascx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="NotificationSettings.aspx.cs">
+      <DependentUpon>NotificationSettings.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="NotificationSettings.aspx.designer.cs">
+      <DependentUpon>NotificationSettings.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="PayrollCalculation.aspx.cs">
+      <DependentUpon>PayrollCalculation.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="PayrollCalculation.aspx.designer.cs">
+      <DependentUpon>PayrollCalculation.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Properties\Settings.Designer.cs" />
+    <Compile Include="Reports.aspx.cs">
+      <DependentUpon>Reports.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Reports.aspx.designer.cs">
+      <DependentUpon>Reports.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="ShiftManagement.aspx.cs">
+      <DependentUpon>ShiftManagement.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="ShiftManagement.aspx.designer.cs">
+      <DependentUpon>ShiftManagement.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="Site.Master.cs">
+      <DependentUpon>Site.Master</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Site.Master.designer.cs">
+      <DependentUpon>Site.Master</DependentUpon>
+    </Compile>
+    <Compile Include="Site.Mobile.Master.cs">
+      <DependentUpon>Site.Mobile.Master</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="Site.Mobile.Master.designer.cs">
+      <DependentUpon>Site.Mobile.Master</DependentUpon>
+    </Compile>
+    <Compile Include="SyncLog.aspx.cs">
+      <DependentUpon>SyncLog.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="SyncLog.aspx.designer.cs">
+      <DependentUpon>SyncLog.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="SystemSettings.aspx.cs">
+      <DependentUpon>SystemSettings.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="SystemSettings.aspx.designer.cs">
+      <DependentUpon>SystemSettings.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="TimesheetApproval.aspx.cs">
+      <DependentUpon>TimesheetApproval.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="TimesheetApproval.aspx.designer.cs">
+      <DependentUpon>TimesheetApproval.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="TimesheetEntry.aspx.cs">
+      <DependentUpon>TimesheetEntry.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="TimesheetEntry.aspx.designer.cs">
+      <DependentUpon>TimesheetEntry.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="TimesheetHistory.aspx.cs">
+      <DependentUpon>TimesheetHistory.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="TimesheetHistory.aspx.designer.cs">
+      <DependentUpon>TimesheetHistory.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="UserManagement.aspx.cs">
+      <DependentUpon>UserManagement.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="UserManagement.aspx.designer.cs">
+      <DependentUpon>UserManagement.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="ViewSwitcher.ascx.cs">
+      <DependentUpon>ViewSwitcher.ascx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="ViewSwitcher.ascx.designer.cs">
+      <DependentUpon>ViewSwitcher.ascx</DependentUpon>
+    </Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="00_START_HERE_COMPLETE_SUMMARY.md" />
+    <Content Include="ABSOLUTELY_FINAL_READY.md" />
+    <Content Include="ABSOLUTELY_FINAL_VARIABLE_FIX.md" />
+    <Content Include="ALL_FORMS_FIXED_COMPLETE.md" />
+    <Content Include="ALL_FORMS_QUICK_SUMMARY.md" />
+    <Content Include="AMBIGUOUS_COLUMN_NAME_FIXED.md" />
+    <Content Include="APPLICATION_ANALYSIS_REPORT.md" />
+    <Content Include="APPLICATION_COMPLETE_ANALYSIS.md" />
+    <Content Include="ASSEMBLY_VERSION_IMPLEMENTATION.md" />
+    <Content Include="ATTENDANCE_INTEGRATION_GUIDE.md" />
+    <Content Include="ATTENDANCE_QUICK_REFERENCE.md" />
+    <Content Include="ATTENDANCE_TRACKING_COMPLETION.md" />
+    <Content Include="ATTENDANCE_TRACKING_FINAL_SUMMARY.md" />
+    <Content Include="ATTENDANCE_TRACKING_FIXED.md" />
+    <Content Include="ATTENDANCE_TRACKING_GUIDE.md" />
+    <Content Include="ATTENDANCE_TRACKING_QUICK_REFERENCE.md" />
+    <Content Include="BEFORE_AFTER_COMPARISON.md" />
+    <Content Include="BUILD_SQL_FILE_WARNING_FIX.md" />
+    <Content Include="BULLETPROOF_FIX_QUICK.md" />
+    <Content Include="Bundle.config" />
+    <Content Include="CHANGE_LOG.md" />
+    <Content Include="COMPLETE_FINAL_GUIDE.md" />
+    <Content Include="COMPLETE_PROJECT_SUMMARY.md" />
+    <Content Include="COMPLETE_Visual_SiteId_Implementation.md" />
+    <Content Include="COMPLIANCE_AUDITING_GUIDE.md" />
+    <Content Include="COMPLIANCE_AUDITING_SUMMARY.md" />
+    <Content Include="CONFIGURATION_COMPLETE_READY_FOR_DEPLOYMENT.md" />
+    <Content Include="CONVERSION_ERROR_FIXED_GUIDE.md" />
+    <Content Include="CONVERSION_ERROR_FIXED_QUICK.md" />
+    <Content Include="DASHBOARD_BEFORE_AFTER.md" />
+    <Content Include="DASHBOARD_COMPLETED.md" />
+    <Content Include="DASHBOARD_FIXED_SUMMARY.md" />
+    <Content Include="DASHBOARD_FIX_COMPLETE.md" />
+    <Content Include="DASHBOARD_QUICK_FIX.md" />
+    <Content Include="DATABASE_SCHEMA_FIX_GUIDE.md" />
+    <Content Include="DATABASE_SCHEMA_REFERENCE.md" />
+    <Content Include="DATABASE_SETUP_GUIDE.md" />
+    <Content Include="DELIVERY_CHECKLIST.md" />
+    <Content Include="DEPLOYMENT_CHECKLIST.md" />
+    <Content Include="DEVELOPER_GUIDE_ERROR_REPORTING.md" />
+    <Content Include="DOCUMENTATION_INDEX.md" />
+    <Content Include="DUPLICATE_ROLE_FIXED.md" />
+    <Content Include="EDIT_PROFILE_FEATURE_GUIDE.md" />
+    <Content Include="EDIT_PROFILE_IMPLEMENTATION_SUMMARY.md" />
+    <Content Include="EMAIL_EXAMPLE_AND_USAGE.md" />
+    <Content Include="EMAIL_NOTIFICATIONS_CHECKLIST.md" />
+    <Content Include="EMAIL_NOTIFICATIONS_FIXES_SUMMARY.md" />
+    <Content Include="EMAIL_NOTIFICATIONS_QUICK_START.md" />
+    <Content Include="EMAIL_NOTIFICATIONS_SETUP_GUIDE.md" />
+    <Content Include="EMAIL_NOTIFICATIONS_STATUS.md" />
+    <Content Include="EMPLOYEEPROFILE_ERRORS_FIXED.md" />
+    <Content Include="EMPLOYEE_PROFILE_AUTO_LOAD_GUIDE.md" />
+    <Content Include="EMPLOYEE_PROFILE_AUTO_LOAD_SUMMARY.md" />
+    <Content Include="EMPLOYEE_PROFILE_COMPLETE.md" />
+    <Content Include="EMPLOYEE_PROFILE_FINAL_DELIVERY.md" />
+    <Content Include="EMPLOYEE_PROFILE_QUICK_REFERENCE.md" />
+    <Content Include="EMPLOYEE_RECREATION_COMPLETE_GUIDE.md" />
+    <Content Include="EMPLOYEE_SELFSERVICE_GUIDE.md" />
+    <Content Include="EMPLOYEE_SELFSERVICE_SUMMARY.md" />
+    <Content Include="EMPLOYEE_SYNC_SITEID_FIX.md" />
+    <Content Include="EMPLOYEE_SYNC_VERIFICATION.md" />
+    <Content Include="ERROR_REPORTING_COMPLETE_SUMMARY.md" />
+    <Content Include="ERROR_REPORTING_QUICK_START.md" />
+    <Content Include="ERROR_REPORTING_SETUP_GUIDE.md" />
+    <Content Include="ERROR_REPORTING_TEST_GUIDE.md" />
+    <Content Include="EXECUTE_NOW.md" />
+    <Content Include="EXECUTE_SOLUTION_NOW.md" />
+    <Content Include="EXECUTIVE_SUMMARY.md" />
+    <Content Include="EXPORT_BUTTON_QUICK_REFERENCE.md" />
+    <Content Include="EXPORT_BUTTON_STYLING_COMPLETE.md" />
+    <Content Include="EXPORT_BUTTON_STYLING_SUMMARY.md" />
+    <Content Include="EXPORT_BUTTON_VISUAL_GUIDE.md" />
+    <Content Include="FINAL_CLEAN_SOLUTION.md" />
+    <Content Include="FINAL_COMPLETE_IDENTITY_SOLUTION.md" />
+    <Content Include="FINAL_COMPLETION_SUMMARY.md" />
+    <Content Include="FINAL_DELIVERY_PACKAGE.md" />
+    <Content Include="FINAL_DELIVERY_SUMMARY.md" />
+    <Content Include="FINAL_EXECUTE_NOW.md" />
+    <Content Include="FINAL_EXECUTION_READY.md" />
+    <Content Include="FINAL_PROJECT_COMPLETION.md" />
+    <Content Include="FINAL_READY_TO_EXECUTE.md" />
+    <Content Include="FINAL_READY_TO_EXECUTE_NOW.md" />
+    <Content Include="FINAL_SQL_FIX_COMPLETE.md" />
+    <Content Include="FINAL_SUMMARY.md" />
+    <Content Include="FINAL_SUMMARY_ERROR_REPORTING.md" />
+    <Content Include="FIX_ALL_SITEID_COMPREHENSIVE_GUIDE.md" />
+    <Content Include="FIX_COMPLETE_SUCCESS.md" />
+    <Content Include="FIX_EMPLOYEES_SITEID_GUIDE.md" />
+    <Content Include="FIX_EMPLOYEES_SITEID_QUICK.md" />
+    <Content Include="FIX_SELECT_BUTTON_POPUP.md" />
+    <Content Include="FIX_SUMMARY.md" />
+    <Content Include="FOCUS_RETURN_FIXED.md" />
+    <Content Include="FOCUS_RETURN_IMPLEMENTATION.md" />
+    <Content Include="GRIDVIEW_EDIT_FOCUS_COMPLETE.md" />
+    <Content Include="GRIDVIEW_EDIT_FOCUS_IMPLEMENTATION_COMPLETE.md" />
+    <Content Include="GRIDVIEW_EDIT_FOCUS_QUICK_REFERENCE.md" />
+    <Content Include="GRIDVIEW_EDIT_FOCUS_VISUAL_GUIDE.md" />
+    <Content Include="IDENTITY_COLUMN_SMART_FIX.md" />
+    <Content Include="IMPLEMENTATION_CHECKLIST.md" />
+    <Content Include="IMPLEMENTATION_COMPLETE.md" />
+    <Content Include="IMPLEMENTATION_GUIDE.md" />
+    <Content Include="IMPLEMENTATION_QUICK_START.md" />
+    <Content Include="IMPLEMENTATION_STATUS_REPORT.md" />
+    <Content Include="IMPLEMENTATION_SUMMARY_SiteId_Display.md" />
+    <Content Include="INDEX.md" />
+    <Content Include="INVALID_OBJECT_NAME_FIXED.md" />
+    <Content Include="NAVIGATION_CONTROL_SUMMARY.md" />
+    <Content Include="NAVIGATION_LOGOUT_IMPLEMENTATION.md" />
+    <Content Include="NAVIGATION_QUICK_REFERENCE.md" />
+    <Content Include="NAVIGATION_SYSTEM_COMPLETE.md" />
+    <Content Include="NEXT_STEPS.md" />
+    <Content Include="NOTIFICATIONS_INTEGRATION_FINAL_DELIVERY.md" />
+    <Content Include="NOTIFICATIONS_REMINDERS_FINAL_SUMMARY.md" />
+    <Content Include="NOTIFICATIONS_REMINDERS_GUIDE.md" />
+    <None Include="packages.config" />
+    <Content Include="PASSWORD_EDITING_COMPLETE.md" />
+    <Content Include="PASSWORD_EDITING_IMPLEMENTATION_COMPLETE.md" />
+    <Content Include="PASSWORD_EDITING_STEP_BY_STEP.md" />
+    <Content Include="PASSWORD_EDITING_SUMMARY.md" />
+    <Content Include="PASSWORD_EDITING_VISUAL_GUIDE.md" />
+    <Content Include="PASSWORD_FIELD_LAYOUT_IMPLEMENTATION_COMPLETE.md" />
+    <Content Include="PASSWORD_FIELD_LAYOUT_QUICK_REFERENCE.md" />
+    <Content Include="PASSWORD_FIELD_LAYOUT_UPDATED.md" />
+    <Content Include="PASSWORD_FIELD_LAYOUT_VISUAL.md" />
+    <Content Include="PASSWORD_FIX_QUICK_REFERENCE.md" />
+    <Content Include="PASSWORD_VISIBILITY_TOGGLE_COMPLETE.md" />
+    <Content Include="PASSWORD_VISIBILITY_TOGGLE_IMPLEMENTATION_COMPLETE.md" />
+    <Content Include="PASSWORD_VISIBILITY_TOGGLE_QUICK_REFERENCE.md" />
+    <Content Include="PASSWORD_VISIBILITY_TOGGLE_VISUAL_GUIDE.md" />
+    <Content Include="PAYROLL_IMPLEMENTATION_GUIDE.md" />
+    <Content Include="PAYROLL_QUICK_SETUP.md" />
+    <Content Include="POPUP_NOTIFICATIONS_COMPLETE.md" />
+    <Content Include="PRIMARY_KEY_FINAL_RESOLUTION.md" />
+    <Content Include="PRIMARY_KEY_QUERY_FINAL_FIX.md" />
+    <Content Include="PROFILE_FEATURE_COMPLETE_SUMMARY.md" />
+    <Content Include="PROJECT_COMPLETE_ALL_FORMS.md" />
+    <Content Include="QUICK_EMPLOYEE_RECREATION.md" />
+    <Content Include="QUICK_REFERENCE_ALL_FORMS.md" />
+    <Content Include="QUICK_REFERENCE_CARD.md" />
+    <Content Include="QUICK_REFERENCE_TOAST.md" />
+    <Content Include="QUICK_START_GUIDE.md" />
+    <Content Include="README.md" />
+    <Content Include="README_EMAIL_NOTIFICATIONS.md" />
+    <Content Include="README_PAY_RATES.md" />
+    <Content Include="READY_FOR_DEPLOYMENT_SUMMARY.md" />
+    <Content Include="READY_TO_EXECUTE_FINAL.md" />
+    <Content Include="REPORTS_CONFIG_TOOLS_FIXED.md" />
+    <Content Include="REPORTS_PAGE_UPDATE.md" />
+    <Content Include="ROLE_BASED_NAVIGATION_IMPLEMENTATION.md" />
+    <Content Include="SECTION1_DELIVERY_SUMMARY.md" />
+    <Content Include="SECTION1_FINAL_STATUS.md" />
+    <Content Include="SECTION1_VISUAL_SUMMARY.md" />
+    <Content Include="SELECT_BUTTON_FIX_SUMMARY.md" />
+    <Content Include="SELECT_BUTTON_FIX_VERIFICATION.md" />
+    <Content Include="SELECT_BUTTON_NO_POPUP_SOLUTION.md" />
+    <Content Include="SETTINGS_CONFIGURATION_FINAL_SUMMARY.md" />
+    <Content Include="SETTINGS_CONFIGURATION_GUIDE.md" />
+    <Content Include="SETTINGS_WITH_NOTIFICATIONS_COMPLETE.md" />
+    <Content Include="SETUP_GUIDE_Fix_SiteId_Error.md" />
+    <Content Include="SHIFTMANAGEMENT_BEFORE_AFTER.md" />
+    <Content Include="SHIFTMANAGEMENT_COMPLETE_SUMMARY.md" />
+    <Content Include="SHIFTMANAGEMENT_DATATYPE_QUICK_FIX.md" />
+    <Content Include="SHIFTMANAGEMENT_DATATYPE_VISUAL_DIAGRAM.md" />
+    <Content Include="SHIFTMANAGEMENT_DATA_TYPE_FIX.md" />
+    <Content Include="SHIFTMANAGEMENT_DROPDOWN_COMPLETE.md" />
+    <Content Include="SHIFTMANAGEMENT_DROPDOWN_FIX.md" />
+    <Content Include="SHIFTMANAGEMENT_DROPDOWN_QUICK_GUIDE.md" />
+    <Content Include="SHIFTMANAGEMENT_DROPDOWN_VISUAL_GUIDE.md" />
+    <Content Include="SHIFTMANAGEMENT_EXECUTIVE_SUMMARY.md" />
+    <Content Include="SHIFTMANAGEMENT_FINAL_SUMMARY.md" />
+    <Content Include="SHIFTMANAGEMENT_LAYOUT_EMPLOYEE_FIX.md" />
+    <Content Include="SHIFTMANAGEMENT_QUICK_FIX_SUMMARY.md" />
+    <Content Include="SHIFTMANAGEMENT_VERIFICATION_CHECKLIST.md" />
+    <Content Include="SHIFT_MANAGEMENT_COMPLETED.md" />
+    <Content Include="SHIFT_MANAGEMENT_EXECUTIVE_SUMMARY.md" />
+    <Content Include="SHIFT_MANAGEMENT_FINAL_SUMMARY.md" />
+    <Content Include="SHIFT_MANAGEMENT_QUICK_REFERENCE.md" />
+    <Content Include="SHIFT_MANAGEMENT_SOLUTION.md" />
+    <Content Include="SHIFT_MANAGEMENT_TESTING_CHECKLIST.md" />
+    <Content Include="SHIFT_MANAGEMENT_VISUAL_GUIDE.md" />
+    <Content Include="SIMPLE_SOLUTION.md" />
+    <Content Include="Site.Master" />
+    <Content Include="Site.Mobile.Master" />
+    <Content Include="SITEID_BULLETPROOF_FIX_FINAL.md" />
+    <Content Include="SITEID_COMPLETE_FIX_GUIDE.md" />
+    <Content Include="SITEID_COMPLETE_QUICK.md" />
+    <Content Include="SITEID_DATA_TYPE_FIX_COMPLETE.md" />
+    <Content Include="SITEID_FINAL_FIX_GUIDE.md" />
+    <Content Include="SITEID_FINAL_QUICK.md" />
+    <Content Include="SITEID_FIX_QUICK_ACTION.md" />
+    <Content Include="SITEID_FIX_WITH_INDEXES_GUIDE.md" />
+    <Content Include="SITEID_INDEXES_QUICK_FIX.md" />
+    <Content Include="SITEID_NVARCHAR_MAX_GUIDE.md" />
+    <Content Include="SITEID_QUICK_ACTION.md" />
+    <Content Include="SITEID_TYPE_MISMATCH_FIXED.md" />
+    <Content Include="SOLUTION_COMPLETE.md" />
+    <Content Include="SP_RENAME_FIX.md" />
+    <Content Include="SQL_CONSTRAINT_TYPE_FIX.md" />
+    <Content Include="SQL_DIAGNOSTIC_SCRIPT_FIXED.md" />
+    <Content Include="SQL_FIX_NOTES.md" />
+    <Content Include="SQL_QUERY_FIXES_COMPLETE.md" />
+    <Content Include="SQL_SCRIPT_RESOLUTION.md" />
+    <Content Include="SQL_WARNING_QUICK_FIX.md" />
+    <Content Include="START_HERE.md" />
+    <Content Include="SUMMARY.md" />
+    <Content Include="SYNC_MESSAGE_DISPLAY_EXAMPLES.md" />
+    <Content Include="SYNC_QUICK_FIX.md" />
+    <Content Include="SYNC_VISUAL_DISPLAY.md" />
+    <Content Include="SYSTEM_COMPLETE_FINAL_DELIVERY.md" />
+    <Content Include="SYSTEM_COMPLETE_OVERVIEW.md" />
+    <Content Include="SYSTEM_FINAL_COMPLETE_OVERVIEW.md" />
+    <Content Include="SYSTEM_FINAL_PROJECT_COMPLETE.md" />
+    <Content Include="SYSTEM_STATUS_REPORT.md" />
+    <Content Include="TimeAttendance.WebForms.csproj" />
+    <Content Include="TIMESHEET_MANAGEMENT_COMPLETION.md" />
+    <Content Include="TIMESHEET_MANAGEMENT_GUIDE.md" />
+    <Content Include="TIMESHEET_QUICK_REFERENCE.md" />
+    <Content Include="TOAST_IMPLEMENTATION_GUIDE.md" />
+    <Content Include="UNIFIED_NAVIGATION_GUIDE.md" />
+    <Content Include="UNIQUE_CONSTRAINT_FINAL_FIX.md" />
+    <Content Include="UPDATE_DASHBOARD_INSTRUCTIONS.md" />
+    <Content Include="URGENT_DATABASE_SCHEMA_FIX.md" />
+    <Content Include="USER_FUNCTIONS_ARCHITECTURE.md" />
+    <Content Include="USER_FUNCTIONS_IMPLEMENTATION_SUMMARY.md" />
+    <Content Include="USER_INFO_DISPLAY_GUIDE.md" />
+    <Content Include="USER_MANAGEMENT_PASSWORD_FIX.md" />
+    <Content Include="VARIABLE_DECLARATION_FIXED.md" />
+    <Content Include="VERSION_DISPLAY_QUICK_GUIDE.md" />
+    <Content Include="VISUAL_COMPARISON_BEFORE_AFTER.md" />
+    <Content Include="VISUAL_DELIVERY_SUMMARY.md" />
+    <Content Include="VISUAL_DEMONSTRATION_ALL_PAGES.md" />
+    <Content Include="VISUAL_GUIDE.md" />
+    <Content Include="VISUAL_GUIDE_SiteId_Display.md" />
+    <Content Include="VISUAL_IMPLEMENTATION_GUIDE.md" />
+    <Content Include="VISUAL_OVERVIEW.md" />
+    <None Include="Properties\Settings.settings" />
+    <None Include="Web.Debug.config">
+      <DependentUpon>Web.config</DependentUpon>
+    </None>
+    <None Include="Web.Release.config">
+      <DependentUpon>Web.config</DependentUpon>
+    </None>
+    <Content Include="WEB_CONFIG_CONFIGURATION_COMPLETE.md" />
+  </ItemGroup>
+  <PropertyGroup>
+    <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">10.0</VisualStudioVersion>
+    <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
+  </PropertyGroup>
+  <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
+  <Import Project="$(VSToolsPath)\WebApplications\Microsoft.WebApplication.targets" Condition="'$(VSToolsPath)' != ''" />
+  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v10.0\WebApplications\Microsoft.WebApplication.targets" Condition="false" />
+  <ProjectExtensions>
+    <VisualStudio>
+      <FlavorProperties GUID="{349c5851-65df-11da-9384-00065b846f21}">
+        <WebProjectProperties>
+          <UseIIS>True</UseIIS>
+          <AutoAssignPort>True</AutoAssignPort>
+          <DevelopmentServerPort>50712</DevelopmentServerPort>
+          <DevelopmentServerVPath>/</DevelopmentServerVPath>
+          <IISUrl>https://localhost:44385/</IISUrl>
+          <NTLMAuthentication>False</NTLMAuthentication>
+          <UseCustomServer>False</UseCustomServer>
+          <CustomServerUrl>
+          </CustomServerUrl>
+          <SaveServerSettingsInUserFile>False</SaveServerSettingsInUserFile>
+        </WebProjectProperties>
+      </FlavorProperties>
+    </VisualStudio>
+  </ProjectExtensions>
+  <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
+    <PropertyGroup>
+      <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
+    </PropertyGroup>
+    <Error Condition="!Exists('packages\Microsoft.CodeDom.Providers.DotNetCompilerPlatform.2.0.1\build\net46\Microsoft.CodeDom.Providers.DotNetCompilerPlatform.props')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Microsoft.CodeDom.Providers.DotNetCompilerPlatform.2.0.1\build\net46\Microsoft.CodeDom.Providers.DotNetCompilerPlatform.props'))" />
+  </Target>
+  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
+       Other similar extension points exist, see Microsoft.Common.targets.
+  <Target Name="BeforeBuild">
+  </Target>
+  <Target Name="AfterBuild">
+  </Target>
+  -->
+</Project>

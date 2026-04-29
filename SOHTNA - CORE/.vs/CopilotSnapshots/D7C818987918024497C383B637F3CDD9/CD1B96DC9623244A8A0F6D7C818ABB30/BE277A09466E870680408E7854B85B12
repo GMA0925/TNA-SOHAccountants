@@ -1,0 +1,46 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Web;
+using System.Web.Security;
+using System.Web.SessionState;
+
+namespace TimeAttendance.WebForms
+{
+    public class Global : HttpApplication
+    {
+        void Application_Start(object sender, EventArgs e)
+        {
+            // Code that runs on application startup
+        }
+
+        void Application_Error(object sender, EventArgs e)
+        {
+            // Global error handler - captures all unhandled exceptions
+            Exception lastError = Server.GetLastError();
+            
+            if (lastError != null)
+            {
+                // Get the current page context
+                string currentPage = "Unknown";
+                if (HttpContext.Current != null && HttpContext.Current.Request != null)
+                {
+                    currentPage = HttpContext.Current.Request.Path ?? "Unknown";
+                }
+
+                // Log to system
+                System.Diagnostics.Debug.WriteLine($"Global Error: {lastError.Message} at {currentPage}");
+            }
+        }
+
+        void Application_BeginRequest(object sender, EventArgs e)
+        {
+            // This can be used for request-level error handling if needed
+        }
+
+        void Application_EndRequest(object sender, EventArgs e)
+        {
+            // This can be used for cleanup
+        }
+    }
+}

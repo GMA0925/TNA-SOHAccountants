@@ -1,0 +1,7 @@
+﻿$path = "C:\Dev Projects\SOH Solutions\Web UI END March 2026\SOHTNA\SOHTNA.csproj"
+$txt  = [System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8)
+$txt  = $txt.Replace('SOHTNA\EmployeeProfile.aspx.designer.cs', 'EmployeeProfile.aspx.designer.cs')
+$txt  = $txt.Replace('SOHTNA\EmployeeProfile.aspx.cs',          'EmployeeProfile.aspx.cs')
+$txt  = $txt.Replace('SOHTNA\EmployeeProfile.aspx',             'EmployeeProfile.aspx')
+[System.IO.File]::WriteAllText($path, $txt, [System.Text.Encoding]::UTF8)
+Write-Host "csproj fixed"

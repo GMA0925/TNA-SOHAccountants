@@ -1,0 +1,463 @@
+﻿using System;
+using System.Data;
+using System.Data.SqlClient;
+using System.Web.UI;
+using System.Web.UI.WebControls;
+
+namespace TimeAttendance.WebForms
+{
+    public partial class EmployeeProfile : Page
+    {
+        private string ConnStr => Properties.Settings.Default.SQLCon;
+
+        // ?? Session helpers ???????????????????????????????????????????????????
+        private string SessionUsername   => Session["Username"]?.ToString() ?? "";
+        private string SessionRole       => Session["Role"]?.ToString()     ?? "";
+        private string SessionSiteId     => Session["SiteId"]?.ToString()   ?? "";
+        private string SessionNameSurname => Session["NameSurname"]?.ToString() ?? "";
+
+        // ?? Page Load ?????????????????????????????????????????????????????????
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            if (Session["Username"] == null)
+            {
+                Response.Redirect("~/Login.aspx");
+                return;
+            }
+
+            if (!IsPostBack)
+            {
+                PopulateSidebar();
+                LoadAccountDetails();
+                LoadEmployeeRecord();
+                LoadAttendanceStats();
+                LoadRecentAttendance();
+            }
+        }
+
+        // ?? Sidebar ???????????????????????????????????????????????????????????
+        private void PopulateSidebar()
+        {
+            string name = SessionNameSurname;
+            lblFullName.Text        = System.Web.HttpUtility.HtmlEncode(name);
+            lblRoleBadge.Text       = System.Web.HttpUtility.HtmlEncode(SessionRole);
+            lblSiteBadge.Text       = System.Web.HttpUtility.HtmlEncode(SessionSiteId);
+            lblUsernameSidebar.Text = System.Web.HttpUtility.HtmlEncode(SessionUsername);
+            lblInitials.Text        = GetInitials(name);
+        }
+
+        private static string GetInitials(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "?";
+            string[] parts = name.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 1) return parts[0].Substring(0, Math.Min(2, parts[0].Length)).ToUpper();
+            return (parts[0][0].ToString() + parts[parts.Length - 1][0].ToString()).ToUpper();
+        }
+
+        // ?? Account details ???????????????????????????????????????????????????
+        private void LoadAccountDetails()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(ConnStr))
+                {
+                    string sql = @"
+                        SELECT NameSurname, Username, Email, Role, SiteId
+                        FROM   Users
+                        WHERE  Username = @Username";
+                    using (SqlCommand cmd = new SqlCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Username", SessionUsername);
+                        conn.Open();
+                        using (SqlDataReader r = cmd.ExecuteReader())
+                        {
+                            if (r.Read())
+                            {
+                                txtFullName.Text     = SafeStr(r, "NameSurname");
+                                txtEmail.Text        = SafeStr(r, "Email");
+                                txtUsername.Text     = SafeStr(r, "Username");
+                                lblRoleDisplay.Text  = SafeStr(r, "Role");
+                                lblSiteDisplay.Text  = SafeStr(r, "SiteId");
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("error", "Could not load account details: " + ex.Message);
+            }
+        }
+
+        // ?? Employee record ???????????????????????????????????????????????????
+        private void LoadEmployeeRecord()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(ConnStr))
+                {
+                    // Match by name and site — the most reliable link without a dedicated FK
+                    string sql = @"
+                        SELECT
+                            e.EmployeeID,
+                            ISNULL(e.EmployeeCode, '')   AS EmployeeCode,
+                            e.NameSurname,
+                            ISNULL(e.Email,'')           AS Email,
+                            ISNULL(e.PhoneNumber,'')     AS PhoneNumber,
+                            ISNULL(d.DepartmentName,'')  AS DepartmentName,
+                            ISNULL(
+                              (SELECT TOP 1 s.ShiftName
+                               FROM EmployeeShifts es
+                               JOIN Shifts s ON s.ShiftID = es.ShiftID
+                               WHERE es.EmployeeID = e.EmployeeID
+                                 AND es.IsActive = 1 AND s.IsActive = 1),
+                              '-') AS ShiftName,
+                            ISNULL(e.PayType,'')         AS PayType,
+                            e.IsActive,
+                            e.CreatedDate
+                        FROM   Employees e
+                        LEFT JOIN Departments d ON d.DepartmentID = e.DepartmentID
+                        WHERE  UPPER(e.NameSurname) = UPPER(@Name)
+                          AND  e.SiteID = @SiteId";
+
+                    using (SqlCommand cmd = new SqlCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Name",   SessionNameSurname);
+                        cmd.Parameters.AddWithValue("@SiteId", SessionSiteId);
+                        conn.Open();
+                        using (SqlDataReader r = cmd.ExecuteReader())
+                        {
+                            if (r.Read())
+                            {
+                                hfEmployeeID.Value = SafeStr(r, "EmployeeID");
+
+                                string code    = SafeStr(r, "EmployeeCode");
+                                string dept    = SafeStr(r, "DepartmentName");
+                                string shift   = SafeStr(r, "ShiftName");
+                                string payType = SafeStr(r, "PayType");
+                                string mobile  = SafeStr(r, "PhoneNumber");
+                                bool isActive  = r["IsActive"] != DBNull.Value && Convert.ToBoolean(r["IsActive"]);
+                                string joined  = r["CreatedDate"] != DBNull.Value
+                                    ? Convert.ToDateTime(r["CreatedDate"]).ToString("yyyy-MM-dd")
+                                    : "-";
+
+                                // Sidebar
+                                lblEmpCode.Text    = string.IsNullOrEmpty(code) ? "-" : code;
+                                lblEmpDept.Text    = string.IsNullOrEmpty(dept) ? "-" : dept;
+                                lblEmpShift.Text   = string.IsNullOrEmpty(shift) ? "-" : shift;
+                                lblEmpPayType.Text = string.IsNullOrEmpty(payType) ? "-" : payType;
+                                lblEmpStatus.Text  = isActive
+                                    ? "<span class=\"ep-badge ep-badge-active\">Active</span>"
+                                    : "<span class=\"ep-badge ep-badge-inactive\">Inactive</span>";
+
+                                // Main panel
+                                lblInfoCode.Text    = string.IsNullOrEmpty(code) ? "-" : code;
+                                lblInfoDept.Text    = string.IsNullOrEmpty(dept) ? "-" : dept;
+                                lblInfoShift.Text   = string.IsNullOrEmpty(shift) ? "-" : shift;
+                                lblInfoPayType.Text = string.IsNullOrEmpty(payType) ? "-" : payType;
+                                lblInfoMobile.Text  = string.IsNullOrEmpty(mobile) ? "-" : mobile;
+                                lblInfoJoined.Text  = joined;
+
+                                // Populate phone textbox from employee record if Users table has none
+                                if (string.IsNullOrWhiteSpace(txtPhone.Text))
+                                    txtPhone.Text = mobile;
+
+                                pnlEmployeeLink.Visible = true;
+                                pnlEmployeeInfo.Visible = true;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Employee record not found or schema mismatch — show panels hidden
+                System.Diagnostics.Debug.WriteLine("LoadEmployeeRecord: " + ex.Message);
+            }
+        }
+
+        // ?? Attendance stats ??????????????????????????????????????????????????
+        private void LoadAttendanceStats()
+        {
+            if (string.IsNullOrWhiteSpace(SessionNameSurname)) return;
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(ConnStr))
+                {
+                    conn.Open();
+
+                    // Days present this month (distinct dates)
+                    string sqlDays = @"
+                        SELECT COUNT(DISTINCT CAST(Timestamp AS DATE))
+                        FROM   ReaderEvents
+                        WHERE  UPPER(PersonName) = UPPER(@Name)
+                          AND  SiteId   = @SiteId
+                          AND  YEAR(Timestamp)  = YEAR(GETDATE())
+                          AND  MONTH(Timestamp) = MONTH(GETDATE())";
+
+                    using (SqlCommand cmd = new SqlCommand(sqlDays, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Name",   SessionNameSurname);
+                        cmd.Parameters.AddWithValue("@SiteId", SessionSiteId);
+                        lblStatDaysThisMonth.Text = cmd.ExecuteScalar()?.ToString() ?? "0";
+                    }
+
+                    // Total events all time
+                    string sqlTotal = @"
+                        SELECT COUNT(*)
+                        FROM   ReaderEvents
+                        WHERE  UPPER(PersonName) = UPPER(@Name)
+                          AND  SiteId = @SiteId";
+
+                    using (SqlCommand cmd = new SqlCommand(sqlTotal, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Name",   SessionNameSurname);
+                        cmd.Parameters.AddWithValue("@SiteId", SessionSiteId);
+                        lblStatTotal.Text = cmd.ExecuteScalar()?.ToString() ?? "0";
+                    }
+
+                    // Approximate hours logged this month (each pair of IN/OUT = worked block)
+                    // Simplified: count events / 2 * average shift hours — use raw event count / 2
+                    string sqlHours = @"
+                        SELECT COUNT(*)
+                        FROM   ReaderEvents
+                        WHERE  UPPER(PersonName) = UPPER(@Name)
+                          AND  SiteId   = @SiteId
+                          AND  YEAR(Timestamp)  = YEAR(GETDATE())
+                          AND  MONTH(Timestamp) = MONTH(GETDATE())";
+
+                    using (SqlCommand cmd = new SqlCommand(sqlHours, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Name",   SessionNameSurname);
+                        cmd.Parameters.AddWithValue("@SiteId", SessionSiteId);
+                        int evts = Convert.ToInt32(cmd.ExecuteScalar() ?? 0);
+                        // Each IN event implies a day worked; approximate 8 h per IN
+                        lblStatHours.Text = (evts / 2 * 8).ToString();
+                    }
+
+                    // Late arrivals this month — placeholder (requires shift start time knowledge)
+                    lblStatLate.Text = "—";
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("LoadAttendanceStats: " + ex.Message);
+            }
+        }
+
+        // ?? Recent attendance ?????????????????????????????????????????????????
+        private void LoadRecentAttendance()
+        {
+            if (string.IsNullOrWhiteSpace(SessionNameSurname)) return;
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(ConnStr))
+                {
+                    string sql = @"
+                        SELECT TOP 50
+                            CAST(Timestamp AS DATE)    AS EventDate,
+                            CAST(Timestamp AS TIME(0)) AS EventTime,
+                            CASE WHEN Direction = 0 THEN 'IN'
+                                 WHEN Direction = 1 THEN 'OUT'
+                                 ELSE ISNULL(CAST(Direction AS VARCHAR), '-') END AS Direction,
+                            ISNULL(ReaderId, '-')      AS ReaderName
+                        FROM   ReaderEvents
+                        WHERE  UPPER(PersonName) = UPPER(@Name)
+                          AND  SiteId   = @SiteId
+                          AND  Timestamp >= DATEADD(DAY, -30, GETDATE())
+                        ORDER  BY Timestamp DESC";
+
+                    using (SqlCommand cmd = new SqlCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Name",   SessionNameSurname);
+                        cmd.Parameters.AddWithValue("@SiteId", SessionSiteId);
+
+                        SqlDataAdapter da = new SqlDataAdapter(cmd);
+                        DataTable dt = new DataTable();
+                        da.Fill(dt);
+
+                        if (dt.Rows.Count > 0)
+                        {
+                            gvAttendance.DataSource = dt;
+                            gvAttendance.DataBind();
+                            pnlAttendance.Visible = true;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("LoadRecentAttendance: " + ex.Message);
+            }
+        }
+
+        // ?? Save account details ??????????????????????????????????????????????
+        protected void btnSaveProfile_Click(object sender, EventArgs e)
+        {
+            string newName  = txtFullName.Text.Trim();
+            string newEmail = txtEmail.Text.Trim();
+            string newPhone = txtPhone.Text.Trim();
+
+            if (string.IsNullOrWhiteSpace(newName))
+            {
+                ShowMessage("error", "Full name cannot be empty.");
+                return;
+            }
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(ConnStr))
+                {
+                    // Check if Email column accepts nulls / if Phone column exists in Users
+                    string sql = @"
+                        UPDATE Users
+                        SET    NameSurname = @Name,
+                               Email       = @Email
+                        WHERE  Username = @Username";
+
+                    using (SqlCommand cmd = new SqlCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Name",     newName);
+                        cmd.Parameters.AddWithValue("@Email",    string.IsNullOrEmpty(newEmail) ? (object)DBNull.Value : newEmail);
+                        cmd.Parameters.AddWithValue("@Username", SessionUsername);
+                        conn.Open();
+                        cmd.ExecuteNonQuery();
+                    }
+
+                    // Also update Employees table if a matching record exists
+                    if (!string.IsNullOrEmpty(hfEmployeeID.Value))
+                    {
+                        string sqlEmp = @"
+                            UPDATE Employees
+                            SET    Email       = @Email,
+                                   PhoneNumber = @Phone,
+                                   ModifiedDate = GETDATE()
+                            WHERE  EmployeeID = @EmpID";
+
+                        using (SqlCommand cmd = new SqlCommand(sqlEmp, conn))
+                        {
+                            cmd.Parameters.AddWithValue("@Email",  string.IsNullOrEmpty(newEmail) ? (object)DBNull.Value : newEmail);
+                            cmd.Parameters.AddWithValue("@Phone",  string.IsNullOrEmpty(newPhone) ? (object)DBNull.Value : newPhone);
+                            cmd.Parameters.AddWithValue("@EmpID",  hfEmployeeID.Value);
+                            cmd.ExecuteNonQuery();
+                        }
+                    }
+                }
+
+                // Refresh session display name
+                Session["NameSurname"] = newName;
+                PopulateSidebar();
+
+                ShowMessage("success", "Profile updated successfully.");
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("error", "Could not save profile: " + ex.Message);
+            }
+        }
+
+        // ?? Reset form ????????????????????????????????????????????????????????
+        protected void btnCancelEdit_Click(object sender, EventArgs e)
+        {
+            lblMessage.Visible = false;
+            lblMessage.Text    = "";
+            LoadAccountDetails();
+            ShowMessage("info", "Changes discarded.");
+        }
+
+        // ?? Change password ???????????????????????????????????????????????????
+        protected void btnChangePassword_Click(object sender, EventArgs e)
+        {
+            string current = txtCurrentPassword.Text;
+            string newPwd  = txtNewPassword.Text;
+            string confirm = txtConfirmPassword.Text;
+
+            if (string.IsNullOrWhiteSpace(current) || string.IsNullOrWhiteSpace(newPwd))
+            {
+                ShowMessage("error", "Please fill in all password fields.");
+                return;
+            }
+
+            if (newPwd != confirm)
+            {
+                ShowMessage("error", "New password and confirmation do not match.");
+                return;
+            }
+
+            if (newPwd.Length < 6)
+            {
+                ShowMessage("error", "New password must be at least 6 characters.");
+                return;
+            }
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(ConnStr))
+                {
+                    // Verify current password
+                    string sqlVerify = @"
+                        SELECT COUNT(1) FROM Users
+                        WHERE  Username = @Username AND PasswordHash = @OldPwd";
+
+                    using (SqlCommand cmd = new SqlCommand(sqlVerify, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Username", SessionUsername);
+                        cmd.Parameters.AddWithValue("@OldPwd",   current);
+                        conn.Open();
+                        int count = (int)cmd.ExecuteScalar();
+                        if (count == 0)
+                        {
+                            ShowMessage("error", "Current password is incorrect.");
+                            return;
+                        }
+                    }
+
+                    // Update password
+                    string sqlUpdate = @"
+                        UPDATE Users
+                        SET    PasswordHash = @NewPwd
+                        WHERE  Username = @Username";
+
+                    using (SqlCommand cmd = new SqlCommand(sqlUpdate, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@NewPwd",   newPwd);
+                        cmd.Parameters.AddWithValue("@Username", SessionUsername);
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                txtCurrentPassword.Text = "";
+                txtNewPassword.Text     = "";
+                txtConfirmPassword.Text = "";
+                ShowMessage("success", "Password changed successfully.");
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("error", "Could not change password: " + ex.Message);
+            }
+        }
+
+        // ?? Helpers ???????????????????????????????????????????????????????????
+        private static string SafeStr(SqlDataReader r, string col)
+        {
+            try { return r[col] == DBNull.Value ? "" : r[col].ToString(); }
+            catch { return ""; }
+        }
+
+        private void ShowMessage(string type, string text)
+        {
+            string css = type == "success" ? "ep-alert ep-alert-success"
+                       : type == "error"   ? "ep-alert ep-alert-error"
+                                           : "ep-alert ep-alert-info";
+
+            string icon = type == "success" ? "fas fa-check-circle"
+                        : type == "error"   ? "fas fa-exclamation-circle"
+                                            : "fas fa-info-circle";
+
+            lblMessage.Text    = $"<div class=\"{css}\"><i class=\"{icon}\"></i> {System.Web.HttpUtility.HtmlEncode(text)}</div>";
+            lblMessage.Visible = true;
+        }
+    }
+}

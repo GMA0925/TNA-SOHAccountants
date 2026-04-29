@@ -1,0 +1,136 @@
+﻿using System;
+using System.Web.UI;
+
+namespace TimeAttendance.WebForms
+{
+    /// <summary>
+    /// Server-side helper that writes a pending toast notification into the page.
+    /// The sohtna-modal.js script picks up the data attributes on DOMContentLoaded
+    /// and fires the toast automatically.
+    ///
+    /// Usage from any Page or UserControl:
+    ///   SohTnaNotify.Success(this, "Saved!", "Employee updated successfully.");
+    ///   SohTnaNotify.Error(this, "Failed", "Could not save changes.");
+    ///   SohTnaNotify.Warning(this, "Warning", "Duplicate entry detected.");
+    ///   SohTnaNotify.Info(this, "Info", "Record loaded.");
+    ///
+    /// Confirm dialog (client-side only, triggered from server script):
+    ///   SohTnaNotify.Confirm(this, "warning", "Delete?", "This action cannot be undone.",
+    ///       "document.getElementById('btnConfirmDelete').click();");
+    /// </summary>
+    public static class SohTnaNotify
+    {
+        public static void Success(Page page, string title, string message, int durationMs = 4000)
+            => Emit(page, "success", title, message, durationMs);
+
+        public static void Error(Page page, string title, string message, int durationMs = 6000)
+            => Emit(page, "error", title, message, durationMs);
+
+        public static void Warning(Page page, string title, string message, int durationMs = 5000)
+            => Emit(page, "warning", title, message, durationMs);
+
+        public static void Info(Page page, string title, string message, int durationMs = 4000)
+            => Emit(page, "info", title, message, durationMs);
+
+        // ?? overloads that accept Control (UserControl, etc.) ??????????????
+        public static void Success(Control ctrl, string title, string message, int durationMs = 4000)
+            => Emit(ctrl.Page, "success", title, message, durationMs);
+
+        public static void Error(Control ctrl, string title, string message, int durationMs = 6000)
+            => Emit(ctrl.Page, "error", title, message, durationMs);
+
+        public static void Warning(Control ctrl, string title, string message, int durationMs = 5000)
+            => Emit(ctrl.Page, "warning", title, message, durationMs);
+
+        public static void Info(Control ctrl, string title, string message, int durationMs = 4000)
+            => Emit(ctrl.Page, "info", title, message, durationMs);
+
+        /// <summary>
+        /// Shows a system-wide confirm dialog. Supply the JavaScript to execute if the user clicks Yes.
+        /// </summary>
+        public static void Confirm(Page page, string type, string title, string message, string onYesJs)
+        {
+            if (page == null) return;
+            string script = string.Format(
+                "SOHTNA&&SOHTNA.confirm&&SOHTNA.confirm.show({{type:'{0}',title:'{1}',message:'{2}',onYes:function(){{{3}}}}});",
+                EscapeJs(type ?? "question"),
+                EscapeJs(title ?? "Confirm"),
+                EscapeJs(message ?? "Are you sure?"),
+                onYesJs ?? "");
+
+            ScriptManager sm = ScriptManager.GetCurrent(page);
+            if (sm != null && sm.IsInAsyncPostBack)
+            {
+                ScriptManager.RegisterStartupScript(page, typeof(SohTnaNotify),
+                    "sohtna_confirm_" + Guid.NewGuid().ToString("N"), script, true);
+            }
+            else
+            {
+                page.ClientScript.RegisterStartupScript(typeof(SohTnaNotify),
+                    "sohtna_confirm_" + Guid.NewGuid().ToString("N"), script, true);
+            }
+        }
+
+        public static void Confirm(Control ctrl, string type, string title, string message, string onYesJs)
+            => Confirm(ctrl.Page, type, title, message, onYesJs);
+
+        // ?? core emitter ???????????????????????????????????????????????????
+        private static void Emit(Page page, string type, string title, string message, int durationMs)
+        {
+            if (page == null) return;
+
+            // Sanitise to prevent XSS in data attributes
+            string safeTitle   = Sanitise(title);
+            string safeMessage = Sanitise(message);
+
+            string div = string.Format(
+                "<div data-sohtna-toast=\"1\" data-sohtna-type=\"{0}\" " +
+                "data-sohtna-title=\"{1}\" data-sohtna-message=\"{2}\" " +
+                "data-sohtna-duration=\"{3}\" style=\"display:none;\"></div>",
+                type, safeTitle, safeMessage, durationMs);
+
+            ScriptManager sm = ScriptManager.GetCurrent(page);
+            if (sm != null && sm.IsInAsyncPostBack)
+            {
+                // UpdatePanel / async postback — inject via ScriptManager
+                ScriptManager.RegisterStartupScript(page, typeof(SohTnaNotify),
+                    "sohtna_toast_" + Guid.NewGuid().ToString("N"),
+                    string.Format(
+                        "SOHTNA && SOHTNA.toast && SOHTNA.toast.show({{type:'{0}',title:'{1}',message:'{2}',duration:{3}}});",
+                        type,
+                        EscapeJs(title),
+                        EscapeJs(message),
+                        durationMs),
+                    addScriptTags: true);
+            }
+            else
+            {
+                // Normal postback — write a hidden div that sohtna-modal.js reads on boot
+                page.ClientScript.RegisterStartupScript(typeof(SohTnaNotify),
+                    "sohtna_toast_" + Guid.NewGuid().ToString("N"),
+                    "<script>document.write('" + EscapeJs(div).Replace("'", "\\'") + "');<\\/script>",
+                    addScriptTags: false);
+            }
+        }
+
+        private static string Sanitise(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return string.Empty;
+            return s.Replace("&", "&amp;")
+                    .Replace("<", "&lt;")
+                    .Replace(">", "&gt;")
+                    .Replace("\"", "&quot;")
+                    .Replace("'", "&#39;");
+        }
+
+        private static string EscapeJs(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return string.Empty;
+            return s.Replace("\\", "\\\\")
+                    .Replace("'",  "\\'")
+                    .Replace("\"", "\\\"")
+                    .Replace("\r", "\\r")
+                    .Replace("\n", "\\n");
+        }
+    }
+}

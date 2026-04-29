@@ -1,0 +1,21 @@
+﻿$content = Get-Content "SOHTNA.csproj" -Raw
+
+$oldBlock = "    <Reference Include=`"itextsharp, Version=5.5.13.5, Culture=neutral, PublicKeyToken=8354ae6d2174ddca, processorArchitecture=MSIL`">`r`n      <HintPath>packages\iTextSharp.5.5.13.5\lib\net461\itextsharp.dll</HintPath>`r`n    </Reference>`r`n    <Reference Include=`"Microsoft.Bcl.HashCode"
+
+$newBlock = "    <Reference Include=`"itextsharp, Version=5.5.13.5, Culture=neutral, PublicKeyToken=8354ae6d2174ddca, processorArchitecture=MSIL`">`r`n      <HintPath>packages\iTextSharp.5.5.13.5\lib\net461\itextsharp.dll</HintPath>`r`n    </Reference>`r`n    <Reference Include=`"itextsharp.xmlworker`">`r`n      <HintPath>packages\itextsharp.xmlworker.5.5.13.4\lib\net461\itextsharp.xmlworker.dll</HintPath>`r`n    </Reference>`r`n    <Reference Include=`"Microsoft.Bcl.HashCode"
+
+$content = $content.Replace($oldBlock, $newBlock)
+
+$oldBlock2 = "    <Reference Include=`"Microsoft.CSharp`" />"
+$newBlock2 = "    <Reference Include=`"Microsoft.AspNet.Web.Optimization.WebForms`">`r`n      <HintPath>packages\Microsoft.AspNet.Web.Optimization.WebForms.1.1.3\lib\net45\Microsoft.AspNet.Web.Optimization.WebForms.dll</HintPath>`r`n    </Reference>`r`n    <Reference Include=`"Microsoft.CSharp`" />`r`n    <Reference Include=`"Microsoft.Web.Infrastructure`">`r`n      <HintPath>packages\Microsoft.Web.Infrastructure.1.0.0.0\lib\net40\Microsoft.Web.Infrastructure.dll</HintPath>`r`n    </Reference>`r`n    <Reference Include=`"Newtonsoft.Json, Version=12.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL`">`r`n      <HintPath>packages\Newtonsoft.Json.12.0.2\lib\net45\Newtonsoft.Json.dll</HintPath>`r`n    </Reference>"
+
+$content = $content.Replace($oldBlock2, $newBlock2)
+
+$oldBlock3 = "    <Reference Include=`"System.Web.Services`" />`r`n    <Reference Include=`"System.EnterpriseServices`" />`r`n    <Reference Include=`"WindowsBase`" />`r`n  </ItemGroup>`r`n  <ItemGroup>`r`n    <Reference Include=`"Microsoft.CodeDom.Providers.DotNetCompilerPlatform`">"
+
+$newBlock3 = "    <Reference Include=`"System.Web.Optimization`">`r`n      <HintPath>packages\Microsoft.AspNet.Web.Optimization.1.1.3\lib\net40\System.Web.Optimization.dll</HintPath>`r`n    </Reference>`r`n    <Reference Include=`"System.Web.Services`" />`r`n    <Reference Include=`"System.EnterpriseServices`" />`r`n    <Reference Include=`"WebGrease`">`r`n      <HintPath>packages\WebGrease.1.6.0\lib\WebGrease.dll</HintPath>`r`n    </Reference>`r`n    <Reference Include=`"WindowsBase`" />`r`n    <Reference Include=`"XLParser`">`r`n      <HintPath>packages\XLParser.1.5.2\lib\net461\XLParser.dll</HintPath>`r`n    </Reference>`r`n    <Reference Include=`"Antlr3.Runtime`">`r`n      <HintPath>packages\Antlr.3.5.0.2\lib\Antlr3.Runtime.dll</HintPath>`r`n    </Reference>`r`n  </ItemGroup>`r`n  <ItemGroup>`r`n    <Reference Include=`"Microsoft.CodeDom.Providers.DotNetCompilerPlatform`">"
+
+$content = $content.Replace($oldBlock3, $newBlock3)
+
+Set-Content "SOHTNA.csproj" -Value $content -Encoding UTF8 -NoNewline
+Write-Host "Done - references updated"

@@ -1,0 +1,8 @@
+C:\Dev Projects\SOH Solutions\SOHTNA - CORE\obj\Debug\net8.0\TimeAttendance.WebForms.csproj.AssemblyReference.cache
+C:\Dev Projects\SOH Solutions\SOHTNA - CORE\obj\Debug\net8.0\rpswa.dswa.cache.json
+C:\Dev Projects\SOH Solutions\SOHTNA - CORE\obj\Debug\net8.0\TimeAttendance.WebForms.GeneratedMSBuildEditorConfig.editorconfig
+C:\Dev Projects\SOH Solutions\SOHTNA - CORE\obj\Debug\net8.0\TimeAttendance.WebForms.AssemblyInfoInputs.cache
+C:\Dev Projects\SOH Solutions\SOHTNA - CORE\obj\Debug\net8.0\TimeAttendance.WebForms.AssemblyInfo.cs
+C:\Dev Projects\SOH Solutions\SOHTNA - CORE\obj\Debug\net8.0\TimeAttendance.WebForms.csproj.CoreCompileInputs.cache
+C:\Dev Projects\SOH Solutions\SOHTNA - CORE\obj\Debug\net8.0\TimeAttendance.WebForms.MvcApplicationPartsAssemblyInfo.cs
+C:\Dev Projects\SOH Solutions\SOHTNA - CORE\obj\Debug\net8.0\TimeAttendance.WebForms.MvcApplicationPartsAssemblyInfo.cache

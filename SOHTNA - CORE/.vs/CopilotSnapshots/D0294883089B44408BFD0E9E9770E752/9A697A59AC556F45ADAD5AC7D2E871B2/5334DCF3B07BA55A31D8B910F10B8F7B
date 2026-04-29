@@ -1,0 +1,167 @@
+﻿using System;
+using System.Data.SqlClient;
+using System.Web.SessionState;
+
+namespace TimeAttendance.WebForms
+{
+    /// <summary>
+    /// Loads site-specific settings from the database into the user's session
+    /// so that every page can read them without an extra DB call.
+    ///
+    /// Called:
+    ///   1. In Login.aspx.cs after a successful login.
+    ///   2. In SystemSettings.aspx.cs after any settings save, so changes
+    ///      are reflected immediately without requiring a new login.
+    ///
+    /// Session keys written:
+    ///   Site_DateFormat          e.g. "yyyy-MM-dd"
+    ///   Site_TimeZone            e.g. "EST"
+    ///   Site_Currency            e.g. "USD"
+    ///   Site_CompanyName         e.g. "Acme Corp"
+    ///   Site_MaintenanceMode     "true" / "false"
+    ///   Site_SessionTimeout      e.g. "30"   (minutes)
+    ///   Site_MaxLoginAttempts    e.g. "5"
+    ///   Site_EnableTwoFactor     "true" / "false"
+    /// </summary>
+    public static class SiteSettingsHelper
+    {
+        /// <summary>
+        /// Loads all site-specific settings into the given session.
+        /// Falls back to DEFAULT rows when no site-specific row exists.
+        /// Gracefully skips any table whose SiteId column has not been added yet.
+        /// </summary>
+        public static void RefreshSessionSettings(HttpSessionState session, string connStr, string siteId)
+        {
+            if (session == null || string.IsNullOrWhiteSpace(connStr)) return;
+            if (string.IsNullOrWhiteSpace(siteId)) siteId = "DEFAULT";
+
+            try
+            {
+                LoadGeneralToSession(session, connStr, siteId);
+                LoadSecurityToSession(session, connStr, siteId);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"SiteSettingsHelper.RefreshSessionSettings error for site {siteId}: {ex.Message}");
+            }
+        }
+
+        // Returns true when the given column exists on the given table.
+        // Used to guard SiteId queries before the migration script has been run.
+        private static bool ColumnExists(SqlConnection conn, string tableName, string columnName)
+        {
+            const string sql = @"SELECT COUNT(1) FROM INFORMATION_SCHEMA.COLUMNS
+                                 WHERE TABLE_NAME = @t AND COLUMN_NAME = @c";
+            using (var cmd = new SqlCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@t", tableName);
+                cmd.Parameters.AddWithValue("@c", columnName);
+                return (int)cmd.ExecuteScalar() > 0;
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // General Settings → session keys: Site_DateFormat, Site_TimeZone,
+        //                     Site_Currency, Site_CompanyName, Site_MaintenanceMode
+        // ─────────────────────────────────────────────────────────────────────
+        private static void LoadGeneralToSession(HttpSessionState session, string connStr, string siteId)
+        {
+            using (var conn = new SqlConnection(connStr))
+            {
+                conn.Open();
+
+                string query;
+                if (ColumnExists(conn, "SystemSettings", "SiteId"))
+                {
+                    query = @"
+                        SELECT SettingKey, SettingValue
+                        FROM SystemSettings
+                        WHERE Category = 'General' AND IsActive = 1
+                          AND SiteId = CASE
+                                WHEN EXISTS (SELECT 1 FROM SystemSettings
+                                             WHERE Category='General' AND IsActive=1 AND SiteId=@SiteId)
+                                THEN @SiteId ELSE 'DEFAULT' END";
+                }
+                else
+                {
+                    query = @"
+                        SELECT SettingKey, SettingValue
+                        FROM SystemSettings
+                        WHERE Category = 'General' AND IsActive = 1";
+                }
+
+                using (var cmd = new SqlCommand(query, conn))
+                {
+                    cmd.Parameters.AddWithValue("@SiteId", siteId);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            string key   = reader["SettingKey"].ToString();
+                            string value = reader["SettingValue"].ToString();
+                            switch (key)
+                            {
+                                case "DateFormat":      session["Site_DateFormat"]      = value; break;
+                                case "TimeZone":        session["Site_TimeZone"]        = value; break;
+                                case "Currency":        session["Site_Currency"]        = value; break;
+                                case "CompanyName":     session["Site_CompanyName"]     = value; break;
+                                case "MaintenanceMode": session["Site_MaintenanceMode"] = value; break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Security Settings → session keys: Site_SessionTimeout,
+        //                      Site_MaxLoginAttempts, Site_EnableTwoFactor
+        // ─────────────────────────────────────────────────────────────────────
+        private static void LoadSecurityToSession(HttpSessionState session, string connStr, string siteId)
+        {
+            using (var conn = new SqlConnection(connStr))
+            {
+                conn.Open();
+
+                string query;
+                if (ColumnExists(conn, "SecuritySettings", "SiteId"))
+                {
+                    query = @"
+                        SELECT TOP 1 SessionTimeoutMinutes, MaxLoginAttempts, EnableTwoFactor
+                        FROM SecuritySettings
+                        WHERE SiteId = CASE
+                                WHEN EXISTS (SELECT 1 FROM SecuritySettings WHERE SiteId=@SiteId)
+                                THEN @SiteId ELSE 'DEFAULT' END
+                        ORDER BY SecuritySettingID DESC";
+                }
+                else
+                {
+                    query = @"
+                        SELECT TOP 1 SessionTimeoutMinutes, MaxLoginAttempts, EnableTwoFactor
+                        FROM SecuritySettings
+                        ORDER BY SecuritySettingID DESC";
+                }
+
+                using (var cmd = new SqlCommand(query, conn))
+                {
+                    cmd.Parameters.AddWithValue("@SiteId", siteId);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            string timeoutVal = reader["SessionTimeoutMinutes"].ToString();
+                            session["Site_SessionTimeout"]   = timeoutVal;
+                            session["Site_MaxLoginAttempts"] = reader["MaxLoginAttempts"].ToString();
+                            session["Site_EnableTwoFactor"]  = reader["EnableTwoFactor"].ToString().ToLower();
+
+                            // Apply session timeout immediately
+                            if (int.TryParse(timeoutVal, out int timeoutMins) && timeoutMins > 0)
+                                session.Timeout = timeoutMins;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

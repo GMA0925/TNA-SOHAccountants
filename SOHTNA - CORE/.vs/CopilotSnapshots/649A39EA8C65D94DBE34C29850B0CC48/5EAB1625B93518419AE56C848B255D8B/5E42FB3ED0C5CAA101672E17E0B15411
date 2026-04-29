@@ -1,0 +1,645 @@
+﻿using System;
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.SqlClient;
+using System.Linq;
+using System.Web;
+using System.Web.UI;
+using System.Web.UI.WebControls;
+
+namespace TimeAttendance.WebForms
+{
+    public partial class TimesheetEntry : System.Web.UI.Page
+    {
+        private string _connStr = Properties.Settings.Default.SQLCon;
+
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            if (Session["Username"] == null)
+            {
+                Response.Redirect("Login.aspx", false);
+                Context.ApplicationInstance.CompleteRequest();
+                return;
+            }
+
+            try
+            {
+                System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                System.Reflection.AssemblyName assemblyName = assembly.GetName();
+                lblVersion.Text = string.Format("v{0}", assemblyName.Version.ToString());
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Version Error: {ex.Message}");
+            }
+
+            if (!IsPostBack)
+            {
+                try
+                {
+                    SetCurrentWeek();
+                    LoadProjects();
+                    LoadPreviousTimesheets();
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error initializing page: {ex.Message}");
+                    ShowMessage($"Error initializing page: {ex.Message}", "error");
+                }
+            }
+        }
+
+        private string GetSiteId()
+        {
+            string userSiteId = Session["SiteId"]?.ToString();
+            if (string.IsNullOrWhiteSpace(userSiteId))
+            {
+                throw new InvalidOperationException("Invalid or missing SiteId. Please log in again.");
+            }
+            return userSiteId;
+        }
+
+        private string GetEmployeeId()
+        {
+            string empId = Session["UserID"]?.ToString();
+            if (string.IsNullOrWhiteSpace(empId))
+            {
+                throw new InvalidOperationException("Employee ID not found in session.");
+            }
+            return empId;
+        }
+
+        private void SetCurrentWeek()
+        {
+            DateTime today = DateTime.Today;
+            // Get Monday of current week (handles Sunday correctly)
+            int daysSinceMonday = ((int)today.DayOfWeek + 6) % 7;
+            DateTime monday = today.AddDays(-daysSinceMonday);
+            DateTime sunday = monday.AddDays(6);
+
+            txtWeekStartDate.Text = monday.ToString("yyyy-MM-dd");
+            txtWeekEndDate.Text = sunday.ToString("yyyy-MM-dd");
+
+            PopulateDateDropdown(monday, sunday);
+            LoadWeekData(monday);
+        }
+
+        protected void txtWeekStartDate_TextChanged(object sender, EventArgs e)
+        {
+            if (DateTime.TryParse(txtWeekStartDate.Text, out DateTime startDate))
+            {
+                DateTime endDate = startDate.AddDays(6);
+                txtWeekEndDate.Text = endDate.ToString("yyyy-MM-dd");
+                PopulateDateDropdown(startDate, endDate);
+                LoadWeekData(startDate);
+            }
+        }
+
+        private void PopulateDateDropdown(DateTime startDate, DateTime endDate)
+        {
+            ddlEntryDate.Items.Clear();
+            ddlEntryDate.Items.Add(new ListItem("-- Select Date --", ""));
+
+            for (DateTime date = startDate; date <= endDate; date = date.AddDays(1))
+            {
+                string displayDate = date.ToString("ddd, MMM dd");
+                ddlEntryDate.Items.Add(new ListItem(displayDate, date.ToString("yyyy-MM-dd")));
+            }
+        }
+
+        private void LoadProjects()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = "SELECT ProjectID, ProjectName FROM Projects WHERE IsActive = 1 ORDER BY ProjectName";
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.CommandTimeout = 15;
+
+                    SqlDataAdapter da = new SqlDataAdapter(cmd);
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+
+                    ddlProject.Items.Clear();
+                    ddlProject.Items.Add(new ListItem("-- Select Project --", ""));
+                    foreach (DataRow row in dt.Rows)
+                    {
+                        ddlProject.Items.Add(new ListItem(row["ProjectName"].ToString(), row["ProjectID"].ToString()));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading projects: {ex.Message}");
+                ShowMessage("Unable to load projects. Please try again.", "warning");
+            }
+        }
+
+        private void LoadWeekData(DateTime startDate)
+        {
+            try
+            {
+                string empId = GetEmployeeId();
+                string siteId = GetSiteId();
+
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = @"
+                        SELECT td.TimesheetDetailID, td.WorkDate, p.ProjectName, td.TaskDescription, 
+                               td.HoursWorked, td.IsBillable
+                        FROM TimesheetDetails td
+                        INNER JOIN Timesheets t ON td.TimesheetID = t.TimesheetID
+                        LEFT JOIN Projects p ON td.ProjectID = p.ProjectID
+                        WHERE t.EmployeeID = @EmployeeID 
+                        AND t.SiteID = @SiteID
+                        AND t.WeekStartDate = @StartDate
+                        ORDER BY td.WorkDate";
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@EmployeeID", empId);
+                    cmd.Parameters.AddWithValue("@SiteID", siteId);
+                    cmd.Parameters.AddWithValue("@StartDate", startDate);
+                    cmd.CommandTimeout = 30;
+
+                    SqlDataAdapter da = new SqlDataAdapter(cmd);
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+
+                    gvTimesheetEntries.DataSource = dt;
+                    gvTimesheetEntries.DataBind();
+
+                    CalculateTotals(empId, siteId, startDate);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading week data: {ex.Message}");
+                ShowMessage($"Error loading week data: {ex.Message}", "error");
+            }
+        }
+
+        protected void btnLoadWeek_Click(object sender, EventArgs e)
+        {
+            if (DateTime.TryParse(txtWeekStartDate.Text, out DateTime startDate))
+            {
+                DateTime endDate = startDate.AddDays(6);
+                txtWeekEndDate.Text = endDate.ToString("yyyy-MM-dd");
+                PopulateDateDropdown(startDate, endDate);
+                LoadWeekData(startDate);
+            }
+            else
+            {
+                ShowMessage("Please select a valid week start date.", "warning");
+            }
+        }
+
+        protected void btnAddEntry_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(ddlEntryDate.SelectedValue))
+                {
+                    ShowMessage("Please select a work date.", "warning");
+                    return;
+                }
+
+                if (string.IsNullOrEmpty(ddlProject.SelectedValue))
+                {
+                    ShowMessage("Please select a project.", "warning");
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(txtTask.Text))
+                {
+                    ShowMessage("Please describe the task.", "warning");
+                    return;
+                }
+
+                if (!decimal.TryParse(txtHours.Text, out decimal hours) || hours <= 0 || hours > 24)
+                {
+                    ShowMessage("Please enter valid hours (between 0 and 24).", "warning");
+                    return;
+                }
+
+                if (!DateTime.TryParse(ddlEntryDate.SelectedValue, out DateTime workDate))
+                {
+                    ShowMessage("Invalid work date selected.", "warning");
+                    return;
+                }
+
+                if (!DateTime.TryParse(txtWeekStartDate.Text, out DateTime startDate))
+                {
+                    ShowMessage("Invalid week start date.", "warning");
+                    return;
+                }
+
+                string empId = GetEmployeeId();
+                string siteId = GetSiteId();
+
+                // Check timesheet status — don't allow adding to submitted/approved timesheets
+                string currentStatus = GetTimesheetStatus(empId, siteId, startDate);
+                if (currentStatus == "Submitted" || currentStatus == "Approved")
+                {
+                    ShowMessage($"Cannot add entries to a timesheet that is already {currentStatus}.", "warning");
+                    return;
+                }
+
+                int timesheetId = GetOrCreateTimesheet(empId, siteId, startDate);
+
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = @"
+                        INSERT INTO TimesheetDetails (TimesheetID, WorkDate, ProjectID, TaskDescription, HoursWorked, IsBillable)
+                        VALUES (@TimesheetID, @WorkDate, @ProjectID, @TaskDescription, @HoursWorked, @IsBillable)";
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@TimesheetID", timesheetId);
+                    cmd.Parameters.AddWithValue("@WorkDate", workDate);
+                    cmd.Parameters.AddWithValue("@ProjectID", ddlProject.SelectedValue);
+                    cmd.Parameters.AddWithValue("@TaskDescription", txtTask.Text.Trim());
+                    cmd.Parameters.AddWithValue("@HoursWorked", hours);
+                    cmd.Parameters.AddWithValue("@IsBillable", chkBillable.Checked ? 1 : 0);
+                    cmd.CommandTimeout = 15;
+
+                    conn.Open();
+                    cmd.ExecuteNonQuery();
+                }
+
+                ShowMessage("Time entry added successfully.", "success");
+                ClearEntryForm();
+                LoadWeekData(startDate);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error adding entry: {ex.Message}");
+                ShowMessage($"Error adding entry: {ex.Message}", "error");
+            }
+        }
+
+        /// <summary>
+        /// Returns the current status of a timesheet, or null if no timesheet exists.
+        /// </summary>
+        private string GetTimesheetStatus(string empId, string siteId, DateTime weekStartDate)
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = "SELECT Status FROM Timesheets WHERE EmployeeID = @EmpID AND SiteID = @SiteID AND WeekStartDate = @StartDate";
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@EmpID", empId);
+                    cmd.Parameters.AddWithValue("@SiteID", siteId);
+                    cmd.Parameters.AddWithValue("@StartDate", weekStartDate);
+                    cmd.CommandTimeout = 15;
+
+                    conn.Open();
+                    object result = cmd.ExecuteScalar();
+                    return result != null && result != DBNull.Value ? result.ToString() : null;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error getting timesheet status: {ex.Message}");
+                return null;
+            }
+        }
+
+        private int GetOrCreateTimesheet(string empId, string siteId, DateTime weekStartDate)
+        {
+            using (SqlConnection conn = new SqlConnection(_connStr))
+            {
+                conn.Open();
+
+                // Try to get existing
+                string selectQuery = "SELECT TimesheetID FROM Timesheets WHERE EmployeeID = @EmpID AND SiteID = @SiteID AND WeekStartDate = @StartDate";
+                using (SqlCommand selectCmd = new SqlCommand(selectQuery, conn))
+                {
+                    selectCmd.Parameters.AddWithValue("@EmpID", empId);
+                    selectCmd.Parameters.AddWithValue("@SiteID", siteId);
+                    selectCmd.Parameters.AddWithValue("@StartDate", weekStartDate);
+                    selectCmd.CommandTimeout = 15;
+
+                    object result = selectCmd.ExecuteScalar();
+                    if (result != null && result != DBNull.Value)
+                    {
+                        return Convert.ToInt32(result);
+                    }
+                }
+
+                // Create new (single connection, semicolon between statements)
+                DateTime weekEndDate = weekStartDate.AddDays(6);
+                string insertQuery = @"
+                    INSERT INTO Timesheets (EmployeeID, SiteID, WeekStartDate, WeekEndDate, TotalHours, BillableHours, Status)
+                    VALUES (@EmpID, @SiteID, @StartDate, @EndDate, 0, 0, 'Draft');
+                    SELECT SCOPE_IDENTITY();";
+
+                using (SqlCommand insertCmd = new SqlCommand(insertQuery, conn))
+                {
+                    insertCmd.Parameters.AddWithValue("@EmpID", empId);
+                    insertCmd.Parameters.AddWithValue("@SiteID", siteId);
+                    insertCmd.Parameters.AddWithValue("@StartDate", weekStartDate);
+                    insertCmd.Parameters.AddWithValue("@EndDate", weekEndDate);
+                    insertCmd.CommandTimeout = 15;
+
+                    object newId = insertCmd.ExecuteScalar();
+                    if (newId == null || newId == DBNull.Value)
+                        throw new InvalidOperationException("Failed to create new timesheet record.");
+
+                    return Convert.ToInt32(newId);
+                }
+            }
+        }
+
+        protected void gvTimesheetEntries_RowCommand(object sender, GridViewCommandEventArgs e)
+        {
+            if (e.CommandName == "Delete")
+            {
+                try
+                {
+                    if (!DateTime.TryParse(txtWeekStartDate.Text, out DateTime startDate))
+                    {
+                        ShowMessage("Invalid week start date.", "error");
+                        return;
+                    }
+
+                    string empId = GetEmployeeId();
+                    string siteId = GetSiteId();
+
+                    // Don't allow deleting from submitted/approved timesheets
+                    string currentStatus = GetTimesheetStatus(empId, siteId, startDate);
+                    if (currentStatus == "Submitted" || currentStatus == "Approved")
+                    {
+                        ShowMessage($"Cannot delete entries from a timesheet that is {currentStatus}.", "warning");
+                        return;
+                    }
+
+                    int detailId = Convert.ToInt32(e.CommandArgument);
+                    using (SqlConnection conn = new SqlConnection(_connStr))
+                    {
+                        string query = "DELETE FROM TimesheetDetails WHERE TimesheetDetailID = @DetailID";
+                        SqlCommand cmd = new SqlCommand(query, conn);
+                        cmd.Parameters.AddWithValue("@DetailID", detailId);
+                        cmd.CommandTimeout = 15;
+                        conn.Open();
+                        cmd.ExecuteNonQuery();
+                    }
+
+                    ShowMessage("Entry deleted successfully.", "success");
+                    LoadWeekData(startDate);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error deleting entry: {ex.Message}");
+                    ShowMessage($"Error deleting entry: {ex.Message}", "error");
+                }
+            }
+        }
+
+        private void CalculateTotals(string empId, string siteId, DateTime startDate)
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = @"
+                        SELECT 
+                            ISNULL(SUM(CASE WHEN td.IsBillable = 1 THEN td.HoursWorked ELSE 0 END), 0) as BillableHours,
+                            ISNULL(SUM(CASE WHEN td.IsBillable = 0 THEN td.HoursWorked ELSE 0 END), 0) as NonBillableHours,
+                            ISNULL(SUM(td.HoursWorked), 0) as TotalHours
+                        FROM TimesheetDetails td
+                        INNER JOIN Timesheets t ON td.TimesheetID = t.TimesheetID
+                        WHERE t.EmployeeID = @EmployeeID 
+                        AND t.SiteID = @SiteID
+                        AND t.WeekStartDate = @StartDate";
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@EmployeeID", empId);
+                    cmd.Parameters.AddWithValue("@SiteID", siteId);
+                    cmd.Parameters.AddWithValue("@StartDate", startDate);
+                    cmd.CommandTimeout = 15;
+
+                    conn.Open();
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            lblBillableHours.Text = Convert.ToDecimal(reader["BillableHours"]).ToString("0.00");
+                            lblNonBillableHours.Text = Convert.ToDecimal(reader["NonBillableHours"]).ToString("0.00");
+                            lblTotalHours.Text = Convert.ToDecimal(reader["TotalHours"]).ToString("0.00");
+                        }
+                        else
+                        {
+                            ResetTotalLabels();
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error calculating totals: {ex.Message}");
+                ResetTotalLabels();
+            }
+        }
+
+        private void ResetTotalLabels()
+        {
+            lblBillableHours.Text = "0.00";
+            lblNonBillableHours.Text = "0.00";
+            lblTotalHours.Text = "0.00";
+        }
+
+        protected void btnSaveDraft_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (!DateTime.TryParse(txtWeekStartDate.Text, out DateTime startDate))
+                {
+                    ShowMessage("Invalid week start date.", "warning");
+                    return;
+                }
+
+                string empId = GetEmployeeId();
+                string siteId = GetSiteId();
+
+                // Don't allow saving draft on submitted/approved timesheets
+                string currentStatus = GetTimesheetStatus(empId, siteId, startDate);
+                if (currentStatus == "Submitted" || currentStatus == "Approved")
+                {
+                    ShowMessage($"Cannot save as draft — timesheet is already {currentStatus}.", "warning");
+                    return;
+                }
+
+                int timesheetId = GetOrCreateTimesheet(empId, siteId, startDate);
+                UpdateTimesheetTotals(timesheetId);
+
+                ShowMessage("Timesheet saved as draft.", "success");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error saving draft: {ex.Message}");
+                ShowMessage($"Error saving draft: {ex.Message}", "error");
+            }
+        }
+
+        protected void btnSubmit_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (!DateTime.TryParse(txtWeekStartDate.Text, out DateTime startDate))
+                {
+                    ShowMessage("Invalid week start date.", "warning");
+                    return;
+                }
+
+                string empId = GetEmployeeId();
+                string siteId = GetSiteId();
+
+                // Don't allow re-submitting already submitted/approved timesheets
+                string currentStatus = GetTimesheetStatus(empId, siteId, startDate);
+                if (currentStatus == "Submitted")
+                {
+                    ShowMessage("This timesheet has already been submitted.", "warning");
+                    return;
+                }
+                if (currentStatus == "Approved")
+                {
+                    ShowMessage("This timesheet has already been approved.", "warning");
+                    return;
+                }
+
+                int timesheetId = GetOrCreateTimesheet(empId, siteId, startDate);
+
+                // Verify there are entries to submit
+                bool hasEntries = false;
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string countQuery = "SELECT COUNT(*) FROM TimesheetDetails WHERE TimesheetID = @ID";
+                    SqlCommand countCmd = new SqlCommand(countQuery, conn);
+                    countCmd.Parameters.AddWithValue("@ID", timesheetId);
+                    countCmd.CommandTimeout = 15;
+                    conn.Open();
+                    hasEntries = Convert.ToInt32(countCmd.ExecuteScalar()) > 0;
+                }
+
+                if (!hasEntries)
+                {
+                    ShowMessage("Cannot submit an empty timesheet. Please add time entries first.", "warning");
+                    return;
+                }
+
+                UpdateTimesheetTotals(timesheetId);
+
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = "UPDATE Timesheets SET Status = 'Submitted', SubmittedDate = GETDATE() WHERE TimesheetID = @ID";
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@ID", timesheetId);
+                    cmd.CommandTimeout = 15;
+                    conn.Open();
+                    cmd.ExecuteNonQuery();
+                }
+
+                ShowMessage("Timesheet submitted for approval.", "success");
+                LoadWeekData(startDate);
+                LoadPreviousTimesheets();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error submitting: {ex.Message}");
+                ShowMessage($"Error submitting timesheet: {ex.Message}", "error");
+            }
+        }
+
+        private void UpdateTimesheetTotals(int timesheetId)
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = @"
+                        UPDATE Timesheets 
+                        SET TotalHours = ISNULL((SELECT SUM(HoursWorked) FROM TimesheetDetails WHERE TimesheetID = @ID), 0),
+                            BillableHours = ISNULL((SELECT SUM(HoursWorked) FROM TimesheetDetails WHERE TimesheetID = @ID AND IsBillable = 1), 0),
+                            ModifiedDate = GETDATE()
+                        WHERE TimesheetID = @ID";
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@ID", timesheetId);
+                    cmd.CommandTimeout = 15;
+                    conn.Open();
+                    cmd.ExecuteNonQuery();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error updating timesheet totals: {ex.Message}");
+            }
+        }
+
+        private void LoadPreviousTimesheets()
+        {
+            try
+            {
+                string empId = GetEmployeeId();
+
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = @"
+                        SELECT TOP 10 TimesheetID, WeekStartDate, WeekEndDate, TotalHours, BillableHours, Status, SubmittedDate
+                        FROM Timesheets
+                        WHERE EmployeeID = @EmployeeID
+                        ORDER BY WeekStartDate DESC";
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@EmployeeID", empId);
+                    cmd.CommandTimeout = 15;
+
+                    SqlDataAdapter da = new SqlDataAdapter(cmd);
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+
+                    gvPreviousTimesheets.DataSource = dt;
+                    gvPreviousTimesheets.DataBind();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading previous timesheets: {ex.Message}");
+            }
+        }
+
+        protected void btnClear_Click(object sender, EventArgs e)
+        {
+            ClearEntryForm();
+            lblMessage.Visible = false;
+        }
+
+        private void ClearEntryForm()
+        {
+            if (ddlEntryDate.Items.Count > 0)
+                ddlEntryDate.SelectedIndex = 0;
+            if (ddlProject.Items.Count > 0)
+                ddlProject.SelectedIndex = 0;
+            txtTask.Text = "";
+            txtHours.Text = "";
+            chkBillable.Checked = true;
+        }
+
+        private void ShowMessage(string message, string type)
+        {
+            lblMessage.Text = message;
+            lblMessage.CssClass = $"{type}-message";
+            lblMessage.Visible = true;
+        }
+
+        protected void btnLogout_Click(object sender, EventArgs e)
+        {
+            Session.Clear();
+            Session.Abandon();
+            Response.Redirect("Login.aspx", false);
+            Context.ApplicationInstance.CompleteRequest();
+        }
+    }
+}

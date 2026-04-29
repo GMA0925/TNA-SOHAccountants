@@ -1,0 +1,366 @@
+﻿using System;
+using System.Data;
+using System.Data.SqlClient;
+using System.Web.UI.WebControls;
+
+namespace TimeAttendance.WebForms
+{
+    public partial class Navigation : System.Web.UI.UserControl
+    {
+        // Button declarations
+        protected LinkButton btnDashboard;
+        protected LinkButton btnUsers;
+        protected LinkButton btnSyncLog;
+        protected LinkButton btnClockAdmin;
+        protected LinkButton btnEmployees;
+        protected LinkButton btnShiftManagement;
+        protected LinkButton btnReports;
+
+        protected LinkButton btnSettings;
+        protected LinkButton btnNotifications;
+        protected LinkButton btnProfile;
+
+        // User info labels
+        protected Label lblUserRole;
+        protected Label lblUserSiteId;
+
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            try
+            {
+                if (!IsPostBack)
+                {
+                    ConfigureNavigationByRole();
+                    DisplayUserInfo();
+                    HighlightCurrentPage();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Navigation Page_Load error: {ex.Message}");
+            }
+        }
+
+        private void DisplayUserInfo()
+        {
+            try
+            {
+                string userRole = Session["Role"]?.ToString() ?? "User";
+                lblUserRole.Text = userRole;
+
+                string siteId = Session["SiteId"]?.ToString() ?? "Not Assigned";
+                lblUserSiteId.Text = siteId;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error displaying user info: {ex.Message}");
+                if (lblUserRole != null) lblUserRole.Text = "User";
+                if (lblUserSiteId != null) lblUserSiteId.Text = "Error";
+            }
+        }
+
+        private void ConfigureNavigationByRole()
+        {
+            try
+            {
+                string userRole = Session["Role"]?.ToString() ?? "User";
+                string username = Session["Username"]?.ToString() ?? "";
+
+                // Try to load permissions from the RolePermissions table
+                DataTable permissions = LoadRolePermissions(userRole);
+
+                if (permissions != null && permissions.Rows.Count > 0)
+                {
+                    // Database-driven permissions
+                    ApplyPermissionsFromDB(permissions);
+                }
+                else
+                {
+                    // Fallback to hardcoded defaults
+                    ApplyHardcodedPermissions(userRole);
+                }
+
+                // Apply user-level overrides (takes priority over role permissions)
+                if (!string.IsNullOrEmpty(username))
+                {
+                    DataTable userOverrides = LoadUserNavPermissions(username);
+                    if (userOverrides != null && userOverrides.Rows.Count > 0)
+                    {
+                        ApplyUserNavOverrides(userOverrides);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error configuring navigation: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Load permissions from the RolePermissions table for the given role
+        /// </summary>
+        private DataTable LoadRolePermissions(string roleName)
+        {
+            try
+            {
+                string connStr = Properties.Settings.Default.SQLCon;
+                using (SqlConnection conn = new SqlConnection(connStr))
+                {
+                    string query = "SELECT FeatureKey, IsAllowed FROM RolePermissions WHERE RoleName = @RoleName";
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@RoleName", roleName);
+                    cmd.CommandTimeout = 10;
+
+                    SqlDataAdapter da = new SqlDataAdapter(cmd);
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+                    return dt;
+                }
+            }
+            catch (Exception)
+            {
+                // Table may not exist yet - return null to use fallback
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Apply button visibility from the database permissions table
+        /// </summary>
+        private void ApplyPermissionsFromDB(DataTable permissions)
+        {
+            // Build a lookup dictionary: FeatureKey -> IsAllowed
+            var permDict = new System.Collections.Generic.Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (DataRow row in permissions.Rows)
+            {
+                string key = row["FeatureKey"].ToString();
+                bool allowed = Convert.ToBoolean(row["IsAllowed"]);
+                permDict[key] = allowed;
+            }
+
+            // Map FeatureKeys to navigation buttons
+            SetButtonVisibility(btnDashboard, permDict, "Dashboard");
+            SetButtonVisibility(btnUsers, permDict, "UserManagement");
+            SetButtonVisibility(btnSyncLog, permDict, "SyncLog");
+            SetButtonVisibility(btnClockAdmin, permDict, "ClockAdmin");
+            SetButtonVisibility(btnEmployees, permDict, "Employees");
+            SetButtonVisibility(btnShiftManagement, permDict, "ShiftManagement");
+            SetButtonVisibility(btnReports, permDict, "Reports");
+
+            SetButtonVisibility(btnSettings, permDict, "Settings");
+            SetButtonVisibility(btnNotifications, permDict, "Notifications");
+            SetButtonVisibility(btnProfile, permDict, "Profile");
+        }
+
+        /// <summary>
+        /// Set a single button's visibility from the permission dictionary
+        /// </summary>
+        private void SetButtonVisibility(LinkButton btn, System.Collections.Generic.Dictionary<string, bool> permDict, string featureKey)
+        {
+            if (btn == null) return;
+
+            if (permDict.ContainsKey(featureKey))
+                btn.Visible = permDict[featureKey];
+            else
+                btn.Visible = true; // Default to visible if not in table
+        }
+
+        /// <summary>
+        /// Fallback hardcoded permission logic (used when RolePermissions table doesn't exist)
+        /// </summary>
+        private void ApplyHardcodedPermissions(string userRole)
+        {
+            bool isAdmin = userRole == "SuperAdmin" || userRole == "Admin";
+            bool isManager = userRole == "Manager";
+
+            btnUsers.Visible = isAdmin;
+            btnSyncLog.Visible = isAdmin;
+            btnClockAdmin.Visible = isAdmin;
+            btnSettings.Visible = isAdmin;
+            btnEmployees.Visible = isAdmin || isManager;
+
+            btnDashboard.Visible = true;
+            btnShiftManagement.Visible = isAdmin || isManager;
+            btnReports.Visible = isAdmin || isManager;
+
+            btnNotifications.Visible = true;
+            btnProfile.Visible = true;
+        }
+
+        /// <summary>
+        /// Load user-level nav permission overrides from the UserNavPermissions table
+        /// </summary>
+        private DataTable LoadUserNavPermissions(string username)
+        {
+            try
+            {
+                string connStr = Properties.Settings.Default.SQLCon;
+                using (SqlConnection conn = new SqlConnection(connStr))
+                {
+                    string query = "SELECT FeatureKey, IsAllowed FROM UserNavPermissions WHERE Username = @Username";
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@Username", username);
+                    cmd.CommandTimeout = 10;
+
+                    SqlDataAdapter da = new SqlDataAdapter(cmd);
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+                    return dt;
+                }
+            }
+            catch (Exception)
+            {
+                // Table may not exist yet - return null to skip overrides
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Apply user-level nav permission overrides (takes priority over role permissions)
+        /// </summary>
+        private void ApplyUserNavOverrides(DataTable userOverrides)
+        {
+            var overrideDict = new System.Collections.Generic.Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (DataRow row in userOverrides.Rows)
+            {
+                string key = row["FeatureKey"].ToString();
+                bool allowed = Convert.ToBoolean(row["IsAllowed"]);
+                overrideDict[key] = allowed;
+            }
+
+            SetButtonVisibility(btnDashboard, overrideDict, "Dashboard");
+            SetButtonVisibility(btnUsers, overrideDict, "UserManagement");
+            SetButtonVisibility(btnSyncLog, overrideDict, "SyncLog");
+            SetButtonVisibility(btnClockAdmin, overrideDict, "ClockAdmin");
+            SetButtonVisibility(btnEmployees, overrideDict, "Employees");
+            SetButtonVisibility(btnShiftManagement, overrideDict, "ShiftManagement");
+            SetButtonVisibility(btnReports, overrideDict, "Reports");
+
+            SetButtonVisibility(btnSettings, overrideDict, "Settings");
+            SetButtonVisibility(btnNotifications, overrideDict, "Notifications");
+            SetButtonVisibility(btnProfile, overrideDict, "Profile");
+        }
+
+        private void HighlightCurrentPage()
+        {
+            try
+            {
+                string currentPage = System.IO.Path.GetFileNameWithoutExtension(Request.Url.AbsolutePath).ToLower();
+
+                switch (currentPage)
+                {
+                    case "dashboard":
+                        btnDashboard.CssClass = "unified-nav-btn active";
+                        break;
+                    case "usermanagement":
+                        btnUsers.CssClass = "unified-nav-btn nav-admin active";
+                        break;
+                    case "synclog":
+                        btnSyncLog.CssClass = "unified-nav-btn nav-admin active";
+                        break;
+                    case "clockadmin":
+                        btnClockAdmin.CssClass = "unified-nav-btn nav-admin active";
+                        break;
+                    case "employees":
+                        btnEmployees.CssClass = "unified-nav-btn nav-employee active";
+                        break;
+                    case "shiftmanagement":
+                        btnShiftManagement.CssClass = "unified-nav-btn nav-employee active";
+                        break;
+                    case "reports":
+                        btnReports.CssClass = "unified-nav-btn active";
+                        break;
+
+                    case "systemsettings":
+                    case "adminpanel":
+                        btnSettings.CssClass = "unified-nav-btn nav-admin active";
+                        break;
+                    case "notificationsettings":
+                        btnNotifications.CssClass = "unified-nav-btn active";
+                        break;
+                    case "employeeprofile":
+                    case "sohtna/employeeprofile":
+                        btnProfile.CssClass = "unified-nav-btn nav-employee active";
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error highlighting current page: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Safe redirect that avoids ThreadAbortException.
+        /// </summary>
+        private void SafeRedirect(string url)
+        {
+            try
+            {
+                Response.Redirect(url, false);
+                Context.ApplicationInstance.CompleteRequest();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error during redirect to {url}: {ex.Message}");
+            }
+        }
+
+        #region Navigation Button Handlers
+
+        protected void btnDashboard_Click(object sender, EventArgs e)
+        {
+            SafeRedirect("Dashboard.aspx");
+        }
+
+        protected void btnUsers_Click(object sender, EventArgs e)
+        {
+            SafeRedirect("UserManagement.aspx");
+        }
+
+        protected void btnSyncLog_Click(object sender, EventArgs e)
+        {
+            SafeRedirect("SyncLog.aspx");
+        }
+
+        protected void btnClockAdmin_Click(object sender, EventArgs e)
+        {
+            SafeRedirect("ClockAdmin.aspx");
+        }
+
+        protected void btnEmployees_Click(object sender, EventArgs e)
+        {
+            SafeRedirect("Employees.aspx");
+        }
+
+        protected void btnShiftManagement_Click(object sender, EventArgs e)
+        {
+            SafeRedirect("ShiftManagement.aspx");
+        }
+
+        protected void btnReports_Click(object sender, EventArgs e)
+        {
+            SafeRedirect("Reports.aspx");
+        }
+
+
+
+        protected void btnSettings_Click(object sender, EventArgs e)
+        {
+            SafeRedirect("SystemSettings.aspx");
+        }
+
+        protected void btnNotifications_Click(object sender, EventArgs e)
+        {
+            SafeRedirect("NotificationSettings.aspx");
+        }
+
+        protected void btnProfile_Click(object sender, EventArgs e)
+        {
+            SafeRedirect("~/SOHTNA/EmployeeProfile.aspx");
+        }
+
+        #endregion
+    }
+}
+

@@ -1,0 +1,181 @@
+﻿using System;
+using System.Data;
+using System.Data.SqlClient;
+using System.Web.UI.WebControls;
+
+namespace TimeAttendance.WebForms
+{
+    public partial class ComplianceReports : System.Web.UI.Page
+    {
+        private string _connStr = Properties.Settings.Default.SQLCon;
+
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            if (Session["Username"] == null || Session["Role"]?.ToString() != "Admin")
+            {
+                Response.Redirect("Login.aspx");
+                return;
+            }
+
+            if (!IsPostBack)
+            {
+                LoadGeneratedReports();
+            }
+        }
+
+        private int GetEmployeeId()
+        {
+            string userIdStr = Session["EmployeeID"]?.ToString();
+            if (string.IsNullOrWhiteSpace(userIdStr) || !int.TryParse(userIdStr, out int empId))
+            {
+                return 1;
+            }
+            return empId;
+        }
+
+        private void LoadGeneratedReports()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = @"
+                        SELECT cr.ReportID, cr.ReportName, cr.ReportType, cr.GeneratedDate, 
+                               e.NameSurname as GeneratedByName, cr.Status
+                        FROM ComplianceReport cr
+                        LEFT JOIN Employees e ON cr.GeneratedBy = e.EmployeeID
+                        ORDER BY cr.GeneratedDate DESC";
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    SqlDataAdapter da = new SqlDataAdapter(cmd);
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+
+                    gvReports.DataSource = dt;
+                    gvReports.DataBind();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading reports: {ex.Message}");
+            }
+        }
+
+        protected void btnGenerateReport_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(ddlReportType.SelectedValue))
+                {
+                    return;
+                }
+
+                int empId = GetEmployeeId();
+                string reportName = $"{ddlReportType.SelectedValue} - {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
+                DateTime startDate = DateTime.Parse(txtPeriodStart.Text);
+                DateTime endDate = DateTime.Parse(txtPeriodEnd.Text);
+
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = @"
+                        INSERT INTO ComplianceReport (ReportName, ReportType, GeneratedDate, GeneratedBy, 
+                                                      ReportPeriodStart, ReportPeriodEnd, Status)
+                        VALUES (@ReportName, @ReportType, @GeneratedDate, @GeneratedBy, 
+                                @ReportPeriodStart, @ReportPeriodEnd, @Status)";
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@ReportName", reportName);
+                    cmd.Parameters.AddWithValue("@ReportType", ddlReportType.SelectedValue);
+                    cmd.Parameters.AddWithValue("@GeneratedDate", DateTime.Now);
+                    cmd.Parameters.AddWithValue("@GeneratedBy", empId);
+                    cmd.Parameters.AddWithValue("@ReportPeriodStart", startDate);
+                    cmd.Parameters.AddWithValue("@ReportPeriodEnd", endDate);
+                    cmd.Parameters.AddWithValue("@Status", "Generated");
+
+                    conn.Open();
+                    cmd.ExecuteNonQuery();
+                }
+
+                LoadGeneratedReports();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error generating report: {ex.Message}");
+            }
+        }
+
+        protected void btnDownloadReport_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                LinkButton btn = (LinkButton)sender;
+                string reportType = btn.CommandArgument;
+                // Implement PDF/Excel download logic here
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error downloading report: {ex.Message}");
+            }
+        }
+
+        protected void btnPreviewReport_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                LinkButton btn = (LinkButton)sender;
+                string reportType = btn.CommandArgument;
+                // Implement preview logic here
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error previewing report: {ex.Message}");
+            }
+        }
+
+        protected void gvReports_RowCommand(object sender, GridViewCommandEventArgs e)
+        {
+            try
+            {
+                int reportId = Convert.ToInt32(e.CommandArgument);
+
+                if (e.CommandName == "Download")
+                {
+                    // Implement download logic
+                }
+                else if (e.CommandName == "Delete")
+                {
+                    using (SqlConnection conn = new SqlConnection(_connStr))
+                    {
+                        string query = "DELETE FROM ComplianceReport WHERE ReportID = @ReportID";
+                        SqlCommand cmd = new SqlCommand(query, conn);
+                        cmd.Parameters.AddWithValue("@ReportID", reportId);
+                        conn.Open();
+                        cmd.ExecuteNonQuery();
+                    }
+                    LoadGeneratedReports();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in row command: {ex.Message}");
+            }
+        }
+
+        #region Navigation
+
+        protected void btnAuditTrail_Click(object sender, EventArgs e) => Response.Redirect("AuditTrail.aspx");
+        protected void btnComplianceStatus_Click(object sender, EventArgs e) => Response.Redirect("ComplianceStatus.aspx");
+        protected void btnDataAccess_Click(object sender, EventArgs e) => Response.Redirect("DataAccessLog.aspx");
+        protected void btnViolations_Click(object sender, EventArgs e) => Response.Redirect("ComplianceViolations.aspx");
+        protected void btnReports_Click(object sender, EventArgs e) => Response.Redirect("ComplianceReports.aspx");
+
+        protected void btnLogout_Click(object sender, EventArgs e)
+        {
+            Session.Clear();
+            Session.Abandon();
+            Response.Redirect("Login.aspx");
+        }
+
+        #endregion
+    }
+}

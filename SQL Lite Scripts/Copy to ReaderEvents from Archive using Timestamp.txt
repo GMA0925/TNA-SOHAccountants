@@ -1,0 +1,30 @@
+BEGIN TRANSACTION;
+
+INSERT INTO ReaderEvents (
+  Timestamp,
+  ReaderId,
+  EventType,
+  Value,
+  PayloadRaw,
+  IsEmulated,
+  PersonName,
+  SiteId,
+  CardNumber,
+  DeviceIP
+)
+SELECT
+  Timestamp,
+  ReaderId,
+  EventType,
+  Value,
+  PayloadRaw,
+  IsEmulated,
+  PersonName,
+  SiteId,
+  CardNumber,
+  DeviceIP
+FROM ReaderEventsArchive
+WHERE Timestamp >= '2026-03-02 00:00:00'
+  AND Timestamp <  '2026-03-03 00:00:00';
+
+COMMIT;

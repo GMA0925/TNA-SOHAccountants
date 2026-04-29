@@ -1,0 +1,2537 @@
+﻿using System;
+using System.Data;
+using System.Data.SqlClient;
+using System.IO;
+using System.Linq;
+using System.Web;
+using System.Web.UI;
+using System.Web.UI.WebControls;
+using iTextSharp.text;
+using iTextSharp.text.pdf;
+using ClosedXML.Excel;
+
+namespace TimeAttendance.WebForms
+{
+    public partial class Reports : System.Web.UI.Page
+    {
+        private string _connStr = Properties.Settings.Default.SQLCon;
+        private bool _exportCompleted = false;
+
+        protected override void Render(HtmlTextWriter writer)
+        {
+            if (_exportCompleted)
+                return;
+            base.Render(writer);
+        }
+
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            if (Session["Username"] == null)
+            {
+                Response.Redirect("Login.aspx", false);
+                Context.ApplicationInstance.CompleteRequest();
+                return;
+            }
+
+            try
+            {
+                System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                System.Reflection.AssemblyName assemblyName = assembly.GetName();
+                lblVersion.Text = string.Format("v{0}", assemblyName.Version.ToString());
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Version Error: {ex.Message}");
+            }
+
+            if (!IsPostBack)
+            {
+                try
+                {
+                    txtFromDate.Text = DateTime.Today.ToString("yyyy-MM-dd");
+                    txtToDate.Text = DateTime.Today.ToString("yyyy-MM-dd");
+                    LoadSites();
+                }
+                catch (Exception ex)
+                {
+                    lblMessage.ForeColor = System.Drawing.Color.Red;
+                    lblMessage.Text = "Error initializing page.";
+                }
+            }
+        }
+
+        private void LoadSites()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = "SELECT SiteID, SiteName, SiteCode FROM Sites WHERE IsActive = 1 ORDER BY SiteName";
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.CommandTimeout = 15;
+                        using (SqlDataAdapter da = new SqlDataAdapter(cmd))
+                        {
+                            DataTable dt = new DataTable();
+                            da.Fill(dt);
+
+                            ddlSites.Items.Clear();
+                            ddlSites.Items.Add(new System.Web.UI.WebControls.ListItem("Select a site", ""));
+                            foreach (DataRow row in dt.Rows)
+                            {
+                                string siteName = row["SiteName"] != DBNull.Value ? row["SiteName"].ToString() : "";
+                                string siteCode = row["SiteCode"] != DBNull.Value ? row["SiteCode"].ToString() : "";
+                                string displayText = string.IsNullOrEmpty(siteCode) ? siteName : $"{siteName} ({siteCode})";
+                                // Use SiteCode as the value since ReaderEvents.SiteId stores the site code, not numeric ID
+                                string value = !string.IsNullOrEmpty(siteCode) ? siteCode : row["SiteID"].ToString();
+                                ddlSites.Items.Add(new System.Web.UI.WebControls.ListItem(displayText, value));
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading sites: {ex.Message}");
+            }
+        }
+
+        // ============================
+        // Quick Range
+        // ============================
+
+        protected void ddlQuickRange_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            DateTime today = DateTime.Today;
+
+            switch (ddlQuickRange.SelectedValue)
+            {
+                case "Today":
+                    txtFromDate.Text = today.ToString("yyyy-MM-dd");
+                    txtToDate.Text = today.ToString("yyyy-MM-dd");
+                    break;
+                case "Yesterday":
+                    txtFromDate.Text = today.AddDays(-1).ToString("yyyy-MM-dd");
+                    txtToDate.Text = today.AddDays(-1).ToString("yyyy-MM-dd");
+                    break;
+                case "Last3":
+                    txtFromDate.Text = today.AddDays(-3).ToString("yyyy-MM-dd");
+                    txtToDate.Text = today.ToString("yyyy-MM-dd");
+                    break;
+                case "LastWeek":
+                    txtFromDate.Text = today.AddDays(-7).ToString("yyyy-MM-dd");
+                    txtToDate.Text = today.ToString("yyyy-MM-dd");
+                    break;
+                case "ThisMonth":
+                    txtFromDate.Text = new DateTime(today.Year, today.Month, 1).ToString("yyyy-MM-dd");
+                    txtToDate.Text = today.ToString("yyyy-MM-dd");
+                    break;
+                case "LastMonth":
+                    txtFromDate.Text = today.AddMonths(-1).ToString("yyyy-MM-dd");
+                    txtToDate.Text = today.ToString("yyyy-MM-dd");
+                    break;
+                case "Last3Months":
+                    txtFromDate.Text = today.AddMonths(-3).ToString("yyyy-MM-dd");
+                    txtToDate.Text = today.ToString("yyyy-MM-dd");
+                    break;
+                case "Last6Months":
+                    txtFromDate.Text = today.AddMonths(-6).ToString("yyyy-MM-dd");
+                    txtToDate.Text = today.ToString("yyyy-MM-dd");
+                    break;
+            }
+        }
+
+        // ============================
+        // Validation
+        // ============================
+
+        private bool TryGetDateRange(out DateTime fromDate, out DateTime toDate)
+        {
+            fromDate = DateTime.MinValue;
+            toDate = DateTime.MinValue;
+
+            if (string.IsNullOrWhiteSpace(txtFromDate.Text) || string.IsNullOrWhiteSpace(txtToDate.Text))
+            {
+                lblMessage.ForeColor = System.Drawing.Color.Red;
+                lblMessage.Text = "Both From Date and To Date are required.";
+                return false;
+            }
+
+            if (!DateTime.TryParse(txtFromDate.Text, out fromDate))
+            {
+                lblMessage.ForeColor = System.Drawing.Color.Red;
+                lblMessage.Text = "From Date is not valid.";
+                return false;
+            }
+
+            if (!DateTime.TryParse(txtToDate.Text, out toDate))
+            {
+                lblMessage.ForeColor = System.Drawing.Color.Red;
+                lblMessage.Text = "To Date is not valid.";
+                return false;
+            }
+
+            if (fromDate > toDate)
+            {
+                lblMessage.ForeColor = System.Drawing.Color.Red;
+                lblMessage.Text = "From Date cannot be after To Date.";
+                return false;
+            }
+
+            return true;
+        }
+
+        // ============================
+        // Report Generation
+        // ============================
+
+        protected void btnGenerateReport_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (!TryGetDateRange(out DateTime fromDate, out DateTime toDate))
+                    return;
+
+                string siteId = ddlSites.SelectedValue;
+                string reportType = ddlReportType.SelectedValue;
+
+                LoadReportData(siteId, fromDate, toDate, reportType);
+
+                if (gvReports.Rows.Count > 0)
+                {
+                    int days = (toDate - fromDate).Days;
+                    string rangeNote = days > 31 ? $" (large range: {days} days — export may take longer)" : "";
+                    lblMessage.ForeColor = System.Drawing.Color.Green;
+                    lblMessage.Text = $"Report generated: {gvReports.Rows.Count} record(s) found.{rangeNote}";
+                }
+                else
+                {
+                    lblMessage.ForeColor = System.Drawing.Color.Orange;
+                    lblMessage.Text = "No records found for the selected criteria.";
+                }
+            }
+            catch (Exception ex)
+            {
+                lblMessage.ForeColor = System.Drawing.Color.Red;
+                lblMessage.Text = "Error generating report.";
+            }
+        }
+
+        private void LoadReportData(string siteId, DateTime fromDate, DateTime toDate, string reportType)
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = BuildQuery(siteId, reportType);
+
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@FromDate", fromDate.Date);
+                        cmd.Parameters.AddWithValue("@ToDate", toDate.Date.AddDays(1).AddSeconds(-1));
+
+                        // Use client local time from hidden field; fall back to server time
+                        DateTime now;
+                        if (!string.IsNullOrEmpty(hfClientNow.Value) && DateTime.TryParse(hfClientNow.Value, out DateTime clientNow))
+                        {
+                            now = toDate.Date == clientNow.Date
+                                ? clientNow
+                                : toDate.Date.Add(clientNow.TimeOfDay);
+                        }
+                        else
+                        {
+                            now = toDate.Date == DateTime.Today
+                                ? DateTime.Now
+                                : toDate.Date.Add(DateTime.Now.TimeOfDay);
+                        }
+                        cmd.Parameters.AddWithValue("@Now", now);
+
+                        if (!string.IsNullOrEmpty(siteId))
+                            cmd.Parameters.AddWithValue("@SiteID", siteId);
+
+                        cmd.CommandTimeout = GetCommandTimeout(fromDate, toDate);
+
+                        using (SqlDataAdapter da = new SqlDataAdapter(cmd))
+                        {
+                            DataTable dt = new DataTable();
+                            da.Fill(dt);
+
+                            ConfigureGridColumns(reportType);
+
+                            gvReports.DataSource = dt;
+                            gvReports.DataBind();
+                        }
+                    }
+                }
+            }
+            catch (SqlException sqlEx)
+            {
+                System.Diagnostics.Debug.WriteLine($"SQL Error in LoadReportData: {sqlEx.Message}");
+                lblMessage.ForeColor = System.Drawing.Color.Red;
+                lblMessage.Text = "Database error loading report data.";
+            }
+            catch (Exception ex)
+            {
+                lblMessage.ForeColor = System.Drawing.Color.Red;
+                lblMessage.Text = "Error loading report data.";
+            }
+        }
+
+        private string BuildQuery(string siteId, string reportType)
+        {
+            string query;
+            string siteFilter = !string.IsNullOrEmpty(siteId)
+                ? " AND CAST(SiteId AS NVARCHAR(MAX)) = @SiteID"
+                : "";
+
+            switch (reportType)
+            {
+                case "Site":
+                default:
+                    // Per Site — daily clock-in/out summary per person
+                    // TimeSpent = MIN(ClockOut, ShiftEnd) – MAX(ClockIn, ShiftStart), capped to shift window
+                    // Variance  = TimeSpent – RequiredHours (positive = over, negative = under)
+                    // Earnings  = RequiredHours × rate (employees only earn shift hours)
+                    // EffectiveNow: for Still Inside on today use @Now capped at ShiftEnd;
+                    //               for historical dates use end-of-day capped at ShiftEnd.
+                    query = @"
+                        ;WITH cte AS (
+                            SELECT
+                                CONVERT(DATE, r.Timestamp) AS WorkDate,
+                                r.PersonName,
+                                MAX(r.CardNumber) AS CardNumber,
+                                MIN(r.Timestamp) AS ClockIn,
+                                CASE WHEN MIN(r.Timestamp) = MAX(r.Timestamp) THEN NULL ELSE MAX(r.Timestamp) END AS ClockOut,
+                                CASE WHEN MIN(r.Timestamp) = MAX(r.Timestamp) THEN 'Still Inside' ELSE 'Clocked Out' END AS Status,
+                                MAX(sh.StartTime) AS ShiftStart,
+                                MAX(sh.EndTime) AS ShiftEnd,
+                                COUNT(*) AS Scans,
+                                CASE WHEN MAX(e.EmployeeID) IS NULL THEN 0 WHEN MAX(sh.ShiftID) IS NULL THEN 0 ELSE 1 END AS HasShift,
+                                MAX(e.PayType) AS PayType,
+                                MAX(e.HourlyRate) AS HourlyRate,
+                                MAX(e.WeeklyRate) AS WeeklyRate,
+                                MAX(e.MonthlyRate) AS MonthlyRate,
+                                -- EffectiveOut: actual clock-out, or @Now/end-of-day for Still Inside
+                                CASE WHEN MIN(r.Timestamp) = MAX(r.Timestamp)
+                                     THEN CASE WHEN CONVERT(DATE, MIN(r.Timestamp)) = CONVERT(DATE, @Now) THEN @Now
+                                               ELSE DATEADD(SECOND, -1, DATEADD(DAY, 1, CONVERT(DATETIME, CONVERT(DATE, MIN(r.Timestamp)))))
+                                          END
+                                     ELSE MAX(r.Timestamp)
+                                END AS EffectiveOut
+                            FROM ReaderEvents r
+                            LEFT JOIN Employees e ON r.PersonName = e.NameSurname
+                                AND CAST(r.SiteId AS NVARCHAR(MAX)) = CAST(e.SiteID AS NVARCHAR(MAX))
+                            LEFT JOIN EmployeeShifts esh ON esh.EmployeeID = e.EmployeeID AND esh.IsActive = 1
+                            LEFT JOIN Shifts sh ON sh.ShiftID = esh.ShiftID AND sh.IsActive = 1
+                            WHERE r.Timestamp BETWEEN @FromDate AND @ToDate
+                              AND r.PersonName IS NOT NULL AND r.PersonName <> ''" + siteFilter.Replace("SiteId", "r.SiteId") + @"
+                            GROUP BY CONVERT(DATE, r.Timestamp), r.PersonName
+                        )
+                        SELECT
+                            WorkDate, PersonName, CardNumber, ClockIn,
+                            CONVERT(VARCHAR(5), ShiftStart, 108) AS ShiftStartTime,
+                            ClockOut,
+                            CONVERT(VARCHAR(5), ShiftEnd, 108) AS ShiftEndTime,
+                            Status,
+                            -- TimeSpent: MIN(EffectiveOut, ShiftEnd) - MAX(ClockIn, ShiftStart), capped >= 0
+                            CASE WHEN ShiftStart IS NOT NULL AND ShiftEnd IS NOT NULL THEN
+                                CAST(
+                                    CASE WHEN DATEDIFF(MINUTE,
+                                            CASE WHEN CAST(ClockIn AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(ClockIn AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                            CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                         ) < 0 THEN 0
+                                         ELSE DATEDIFF(MINUTE,
+                                            CASE WHEN CAST(ClockIn AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(ClockIn AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                            CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                         )
+                                    END
+                                / 60 AS VARCHAR(10)) + 'h ' +
+                                CAST(
+                                    CASE WHEN DATEDIFF(MINUTE,
+                                            CASE WHEN CAST(ClockIn AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(ClockIn AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                            CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                         ) < 0 THEN 0
+                                         ELSE DATEDIFF(MINUTE,
+                                            CASE WHEN CAST(ClockIn AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(ClockIn AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                            CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                         )
+                                    END
+                                % 60 AS VARCHAR(10)) + 'm'
+                            ELSE
+                                -- No shift: raw clock-in to effective out
+                                CAST(DATEDIFF(MINUTE, ClockIn, EffectiveOut) / 60 AS VARCHAR(10)) + 'h ' +
+                                CAST(DATEDIFF(MINUTE, ClockIn, EffectiveOut) % 60 AS VARCHAR(10)) + 'm'
+                            END AS TimeSpent,
+                            -- RequiredHours
+                            CASE WHEN ShiftStart IS NOT NULL AND ShiftEnd IS NOT NULL
+                                 THEN CAST(DATEDIFF(MINUTE, CAST(ShiftStart AS TIME), CAST(ShiftEnd AS TIME)) / 60 AS VARCHAR(10)) + 'h ' +
+                                      CAST(DATEDIFF(MINUTE, CAST(ShiftStart AS TIME), CAST(ShiftEnd AS TIME)) % 60 AS VARCHAR(10)) + 'm'
+                                 ELSE NULL
+                            END AS RequiredHours,
+                            -- Variance = TimeSpent – RequiredHours (signed: positive = over, negative = under)
+                            CASE WHEN ShiftStart IS NOT NULL AND ShiftEnd IS NOT NULL THEN
+                                CASE WHEN (
+                                    CASE WHEN DATEDIFF(MINUTE,
+                                            CASE WHEN CAST(ClockIn AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(ClockIn AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                            CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                         ) < 0 THEN 0
+                                         ELSE DATEDIFF(MINUTE,
+                                            CASE WHEN CAST(ClockIn AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(ClockIn AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                            CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                         )
+                                    END
+                                    - DATEDIFF(MINUTE, CAST(ShiftStart AS TIME), CAST(ShiftEnd AS TIME))
+                                ) >= 0 THEN
+                                    CAST(ABS(
+                                        CASE WHEN DATEDIFF(MINUTE,
+                                                CASE WHEN CAST(ClockIn AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(ClockIn AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                                CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                             ) < 0 THEN 0
+                                             ELSE DATEDIFF(MINUTE,
+                                                CASE WHEN CAST(ClockIn AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(ClockIn AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                                CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                             )
+                                        END
+                                        - DATEDIFF(MINUTE, CAST(ShiftStart AS TIME), CAST(ShiftEnd AS TIME))
+                                    ) / 60 AS VARCHAR(10)) + 'h ' +
+                                    CAST(ABS(
+                                        CASE WHEN DATEDIFF(MINUTE,
+                                                CASE WHEN CAST(ClockIn AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(ClockIn AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                                CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                             ) < 0 THEN 0
+                                             ELSE DATEDIFF(MINUTE,
+                                                CASE WHEN CAST(ClockIn AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(ClockIn AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                                CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                             )
+                                        END
+                                        - DATEDIFF(MINUTE, CAST(ShiftStart AS TIME), CAST(ShiftEnd AS TIME))
+                                    ) % 60 AS VARCHAR(10)) + 'm'
+                                ELSE
+                                    '-' +
+                                    CAST(ABS(
+                                        CASE WHEN DATEDIFF(MINUTE,
+                                                CASE WHEN CAST(ClockIn AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(ClockIn AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                                CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                             ) < 0 THEN 0
+                                             ELSE DATEDIFF(MINUTE,
+                                                CASE WHEN CAST(ClockIn AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(ClockIn AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                                CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                             )
+                                        END
+                                        - DATEDIFF(MINUTE, CAST(ShiftStart AS TIME), CAST(ShiftEnd AS TIME))
+                                    ) / 60 AS VARCHAR(10)) + 'h ' +
+                                    CAST(ABS(
+                                        CASE WHEN DATEDIFF(MINUTE,
+                                                CASE WHEN CAST(ClockIn AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(ClockIn AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                                CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                             ) < 0 THEN 0
+                                             ELSE DATEDIFF(MINUTE,
+                                                CASE WHEN CAST(ClockIn AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(ClockIn AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                                CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                             )
+                                        END
+                                        - DATEDIFF(MINUTE, CAST(ShiftStart AS TIME), CAST(ShiftEnd AS TIME))
+                                    ) % 60 AS VARCHAR(10)) + 'm'
+                                END
+                            ELSE NULL END AS Variance,
+                            -- VarianceMinutes (signed integer for formatting)
+                            CASE WHEN ShiftStart IS NOT NULL AND ShiftEnd IS NOT NULL THEN
+                                CASE WHEN DATEDIFF(MINUTE,
+                                        CASE WHEN CAST(ClockIn AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(ClockIn AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                        CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                     ) < 0 THEN 0
+                                     ELSE DATEDIFF(MINUTE,
+                                        CASE WHEN CAST(ClockIn AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(ClockIn AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                        CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                     )
+                                END
+                                - DATEDIFF(MINUTE, CAST(ShiftStart AS TIME), CAST(ShiftEnd AS TIME))
+                            ELSE NULL END AS VarianceMinutes,
+                            Scans, HasShift, PayType,
+                            -- Earnings = RequiredHours × rate (only shift hours are paid)
+                            CAST(
+                                CASE WHEN ShiftStart IS NOT NULL AND ShiftEnd IS NOT NULL THEN
+                                    DATEDIFF(MINUTE, CAST(ShiftStart AS TIME), CAST(ShiftEnd AS TIME)) / 60.0
+                                    * CASE
+                                        WHEN PayType = 'Hourly'  THEN ISNULL(HourlyRate, 0)
+                                        WHEN PayType = 'Weekly'  THEN ISNULL(WeeklyRate, 0) / 40.0
+                                        WHEN PayType = 'Monthly' THEN ISNULL(MonthlyRate, 0) / 176.0
+                                        ELSE 0
+                                      END
+                                ELSE 0
+                                END
+                            AS DECIMAL(10,2)) AS Earnings
+                        FROM cte
+                        ORDER BY WorkDate DESC, PersonName";
+                    break;
+
+                case "Person":
+                    // Per Person — aggregate summary across date range
+                    // Same clamped shift-window logic as Site query
+                    query = @"
+                        ;WITH cte AS (
+                            SELECT
+                                r.PersonName,
+                                MAX(r.CardNumber) AS CardNumber,
+                                COUNT(*) AS ScanCount,
+                                MIN(r.Timestamp) AS FirstScan,
+                                MAX(r.Timestamp) AS LastScan,
+                                MAX(sh.StartTime) AS ShiftStart,
+                                MAX(sh.EndTime) AS ShiftEnd,
+                                CASE WHEN MAX(e.EmployeeID) IS NULL THEN 0 WHEN MAX(sh.ShiftID) IS NULL THEN 0 ELSE 1 END AS HasShift,
+                                MAX(e.PayType) AS PayType,
+                                MAX(e.HourlyRate) AS HourlyRate,
+                                MAX(e.WeeklyRate) AS WeeklyRate,
+                                MAX(e.MonthlyRate) AS MonthlyRate,
+                                CASE WHEN MIN(r.Timestamp) = MAX(r.Timestamp)
+                                     THEN CASE WHEN CONVERT(DATE, MIN(r.Timestamp)) = CONVERT(DATE, @Now) THEN @Now
+                                               ELSE DATEADD(SECOND, -1, DATEADD(DAY, 1, CONVERT(DATETIME, CONVERT(DATE, MIN(r.Timestamp)))))
+                                          END
+                                     ELSE MAX(r.Timestamp)
+                                END AS EffectiveOut
+                            FROM ReaderEvents r
+                            LEFT JOIN Employees e ON r.PersonName = e.NameSurname
+                                AND CAST(r.SiteId AS NVARCHAR(MAX)) = CAST(e.SiteID AS NVARCHAR(MAX))
+                            LEFT JOIN EmployeeShifts esh ON esh.EmployeeID = e.EmployeeID AND esh.IsActive = 1
+                            LEFT JOIN Shifts sh ON sh.ShiftID = esh.ShiftID AND sh.IsActive = 1
+                            WHERE r.Timestamp BETWEEN @FromDate AND @ToDate
+                              AND r.PersonName IS NOT NULL AND r.PersonName <> ''" + siteFilter.Replace("SiteId", "r.SiteId") + @"
+                            GROUP BY r.PersonName
+                        )
+                        SELECT
+                            PersonName, CardNumber, ScanCount, FirstScan,
+                            CONVERT(VARCHAR(5), ShiftStart, 108) AS ShiftStartTime,
+                            LastScan,
+                            CONVERT(VARCHAR(5), ShiftEnd, 108) AS ShiftEndTime,
+                            CASE WHEN ShiftStart IS NOT NULL AND ShiftEnd IS NOT NULL THEN
+                                CAST(
+                                    CASE WHEN DATEDIFF(MINUTE,
+                                            CASE WHEN CAST(FirstScan AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(FirstScan AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                            CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                         ) < 0 THEN 0
+                                         ELSE DATEDIFF(MINUTE,
+                                            CASE WHEN CAST(FirstScan AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(FirstScan AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                            CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                         )
+                                    END
+                                / 60 AS VARCHAR(10)) + 'h ' +
+                                CAST(
+                                    CASE WHEN DATEDIFF(MINUTE,
+                                            CASE WHEN CAST(FirstScan AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(FirstScan AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                            CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                         ) < 0 THEN 0
+                                         ELSE DATEDIFF(MINUTE,
+                                            CASE WHEN CAST(FirstScan AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(FirstScan AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                            CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                         )
+                                    END
+                                % 60 AS VARCHAR(10)) + 'm'
+                            ELSE
+                                CAST(DATEDIFF(MINUTE, FirstScan, EffectiveOut) / 60 AS VARCHAR(10)) + 'h ' +
+                                CAST(DATEDIFF(MINUTE, FirstScan, EffectiveOut) % 60 AS VARCHAR(10)) + 'm'
+                            END AS TimeSpent,
+                            CASE WHEN ShiftStart IS NOT NULL AND ShiftEnd IS NOT NULL
+                                 THEN CAST(DATEDIFF(MINUTE, CAST(ShiftStart AS TIME), CAST(ShiftEnd AS TIME)) / 60 AS VARCHAR(10)) + 'h ' +
+                                      CAST(DATEDIFF(MINUTE, CAST(ShiftStart AS TIME), CAST(ShiftEnd AS TIME)) % 60 AS VARCHAR(10)) + 'm'
+                                 ELSE NULL
+                            END AS RequiredHours,
+                            CASE WHEN ShiftStart IS NOT NULL AND ShiftEnd IS NOT NULL THEN
+                                CASE WHEN (
+                                    CASE WHEN DATEDIFF(MINUTE,
+                                            CASE WHEN CAST(FirstScan AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(FirstScan AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                            CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                         ) < 0 THEN 0
+                                         ELSE DATEDIFF(MINUTE,
+                                            CASE WHEN CAST(FirstScan AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(FirstScan AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                            CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                         )
+                                    END
+                                    - DATEDIFF(MINUTE, CAST(ShiftStart AS TIME), CAST(ShiftEnd AS TIME))
+                                ) >= 0 THEN
+                                    CAST(ABS(
+                                        CASE WHEN DATEDIFF(MINUTE,
+                                                CASE WHEN CAST(FirstScan AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(FirstScan AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                                CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                             ) < 0 THEN 0
+                                             ELSE DATEDIFF(MINUTE,
+                                                CASE WHEN CAST(FirstScan AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(FirstScan AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                                CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                             )
+                                        END
+                                        - DATEDIFF(MINUTE, CAST(ShiftStart AS TIME), CAST(ShiftEnd AS TIME))
+                                    ) / 60 AS VARCHAR(10)) + 'h ' +
+                                    CAST(ABS(
+                                        CASE WHEN DATEDIFF(MINUTE,
+                                                CASE WHEN CAST(FirstScan AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(FirstScan AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                                CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                             ) < 0 THEN 0
+                                             ELSE DATEDIFF(MINUTE,
+                                                CASE WHEN CAST(FirstScan AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(FirstScan AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                                CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                             )
+                                        END
+                                        - DATEDIFF(MINUTE, CAST(ShiftStart AS TIME), CAST(ShiftEnd AS TIME))
+                                    ) % 60 AS VARCHAR(10)) + 'm'
+                                ELSE
+                                    '-' +
+                                    CAST(ABS(
+                                        CASE WHEN DATEDIFF(MINUTE,
+                                                CASE WHEN CAST(FirstScan AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(FirstScan AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                                CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                             ) < 0 THEN 0
+                                             ELSE DATEDIFF(MINUTE,
+                                                CASE WHEN CAST(FirstScan AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(FirstScan AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                                CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                             )
+                                        END
+                                        - DATEDIFF(MINUTE, CAST(ShiftStart AS TIME), CAST(ShiftEnd AS TIME))
+                                    ) / 60 AS VARCHAR(10)) + 'h ' +
+                                    CAST(ABS(
+                                        CASE WHEN DATEDIFF(MINUTE,
+                                                CASE WHEN CAST(FirstScan AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(FirstScan AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                                CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                             ) < 0 THEN 0
+                                             ELSE DATEDIFF(MINUTE,
+                                                CASE WHEN CAST(FirstScan AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(FirstScan AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                                CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                             )
+                                        END
+                                        - DATEDIFF(MINUTE, CAST(ShiftStart AS TIME), CAST(ShiftEnd AS TIME))
+                                    ) % 60 AS VARCHAR(10)) + 'm'
+                                END
+                            ELSE NULL END AS Variance,
+                            CASE WHEN ShiftStart IS NOT NULL AND ShiftEnd IS NOT NULL THEN
+                                CASE WHEN DATEDIFF(MINUTE,
+                                        CASE WHEN CAST(FirstScan AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(FirstScan AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                        CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                     ) < 0 THEN 0
+                                     ELSE DATEDIFF(MINUTE,
+                                        CASE WHEN CAST(FirstScan AS TIME) > CAST(ShiftStart AS TIME) THEN CAST(FirstScan AS TIME) ELSE CAST(ShiftStart AS TIME) END,
+                                        CASE WHEN CAST(EffectiveOut AS TIME) < CAST(ShiftEnd AS TIME) THEN CAST(EffectiveOut AS TIME) ELSE CAST(ShiftEnd AS TIME) END
+                                     )
+                                END
+                                - DATEDIFF(MINUTE, CAST(ShiftStart AS TIME), CAST(ShiftEnd AS TIME))
+                            ELSE NULL END AS VarianceMinutes,
+                            HasShift, PayType,
+                            CAST(
+                                CASE WHEN ShiftStart IS NOT NULL AND ShiftEnd IS NOT NULL THEN
+                                    DATEDIFF(MINUTE, CAST(ShiftStart AS TIME), CAST(ShiftEnd AS TIME)) / 60.0
+                                    * CASE
+                                        WHEN PayType = 'Hourly'  THEN ISNULL(HourlyRate, 0)
+                                        WHEN PayType = 'Weekly'  THEN ISNULL(WeeklyRate, 0) / 40.0
+                                        WHEN PayType = 'Monthly' THEN ISNULL(MonthlyRate, 0) / 176.0
+                                        ELSE 0
+                                      END
+                                ELSE 0
+                                END
+                            AS DECIMAL(10,2)) AS Earnings
+                        FROM cte
+                        ORDER BY PersonName";
+                    break;
+
+                case "Shift":
+                    // Per Shift — shift definitions (uses SiteCode via Employees link)
+                    query = @"
+                        SELECT 
+                            s.ShiftName,
+                            d.DepartmentName,
+                            CONVERT(VARCHAR(5), s.StartTime, 108) AS ShiftStart,
+                            CONVERT(VARCHAR(5), s.EndTime, 108) AS ShiftEnd,
+                            CAST(DATEDIFF(MINUTE, CAST(s.StartTime AS TIME), CAST(s.EndTime AS TIME)) / 60.0 AS DECIMAL(10,2)) AS ShiftHours,
+                            CASE WHEN s.IsActive = 1 THEN 'Active' ELSE 'Inactive' END AS Status
+                        FROM Shifts s
+                        INNER JOIN Departments d ON s.DepartmentID = d.DepartmentID
+                        WHERE 1=1";
+                    if (!string.IsNullOrEmpty(siteId))
+                        query += @" AND s.SiteID IN (SELECT SiteID FROM Sites WHERE SiteCode = @SiteID)";
+                    query += " ORDER BY d.DepartmentName, s.ShiftName";
+                    break;
+
+                case "Reader":
+                    query = @"
+                        SELECT DeviceIP, ReaderId, COUNT(*) AS TotalEvents,
+                               MIN(Timestamp) AS FirstEvent, MAX(Timestamp) AS LastEvent
+                        FROM ReaderEvents
+                        WHERE Timestamp BETWEEN @FromDate AND @ToDate" + siteFilter + @"
+                        GROUP BY DeviceIP, ReaderId ORDER BY TotalEvents DESC";
+                    break;
+
+                case "Emulated":
+                    query = @"
+                        SELECT PersonName, CardNumber, EventType, Timestamp, DeviceIP, ReaderId
+                        FROM ReaderEvents
+                        WHERE IsEmulated = 1 AND Timestamp BETWEEN @FromDate AND @ToDate" + siteFilter + @"
+                        ORDER BY Timestamp DESC";
+                    break;
+
+                case "SyncFail":
+                    query = @"
+                        SELECT PersonName, EventType, Timestamp, DeviceIP, PayloadRaw
+                        FROM ReaderEvents
+                        WHERE PayloadRaw IS NOT NULL AND IsEmulated = 1
+                          AND Timestamp BETWEEN @FromDate AND @ToDate" + siteFilter + @"
+                        ORDER BY Timestamp DESC";
+                    break;
+
+                case "Hourly":
+                    query = @"
+                        SELECT DATEPART(HOUR, Timestamp) AS Hour, COUNT(*) AS Events
+                        FROM ReaderEvents
+                        WHERE Timestamp BETWEEN @FromDate AND @ToDate" + siteFilter + @"
+                        GROUP BY DATEPART(HOUR, Timestamp) ORDER BY Hour";
+                    break;
+
+                case "TopUsers":
+                    query = @"
+                        SELECT TOP 50 PersonName, MAX(CardNumber) AS CardNumber, COUNT(*) AS Events
+                        FROM ReaderEvents
+                        WHERE Timestamp BETWEEN @FromDate AND @ToDate
+                          AND PersonName IS NOT NULL AND PersonName <> ''" + siteFilter + @"
+                        GROUP BY PersonName ORDER BY Events DESC";
+                    break;
+
+                case "Missing":
+                    query = @"
+                        SELECT PersonName, COUNT(*) AS Events
+                        FROM ReaderEvents
+                        WHERE Timestamp BETWEEN @FromDate AND @ToDate
+                          AND (PersonName IS NULL OR PersonName = '')" + siteFilter + @"
+                        GROUP BY PersonName ORDER BY Events DESC";
+                    break;
+
+                case "Rollup":
+                    query = @"
+                        SELECT SiteId, COUNT(*) AS TotalEvents,
+                               COUNT(DISTINCT PersonName) AS UniquePersons,
+                               MIN(Timestamp) AS FirstEvent, MAX(Timestamp) AS LastEvent
+                        FROM ReaderEvents
+                        WHERE Timestamp BETWEEN @FromDate AND @ToDate" + siteFilter + @"
+                        GROUP BY SiteId ORDER BY TotalEvents DESC";
+                    break;
+            }
+
+            return query;
+        }
+
+        private void ConfigureGridColumns(string reportType)
+        {
+            bool includeFinancials = chkIncludeFinancials.Checked;
+
+            gvReports.Columns.Clear();
+
+            switch (reportType)
+            {
+                case "Site":
+                default:
+                    gvReports.Columns.Add(new BoundField { DataField = "WorkDate", HeaderText = "Date", DataFormatString = "{0:yyyy-MM-dd}" });
+                    gvReports.Columns.Add(new BoundField { DataField = "PersonName", HeaderText = "Person" });
+                    gvReports.Columns.Add(new BoundField { DataField = "CardNumber", HeaderText = "Employee Code" });
+                    gvReports.Columns.Add(new BoundField { DataField = "ClockIn", HeaderText = "Clock In", DataFormatString = "{0:HH:mm:ss}" });
+                    gvReports.Columns.Add(new BoundField { DataField = "ShiftStartTime", HeaderText = "Shift Start" });
+                    gvReports.Columns.Add(new BoundField { DataField = "ClockOut", HeaderText = "Clock Out", DataFormatString = "{0:HH:mm:ss}" });
+                    gvReports.Columns.Add(new BoundField { DataField = "ShiftEndTime", HeaderText = "Shift End" });
+                    gvReports.Columns.Add(new BoundField { DataField = "Status", HeaderText = "Status" });
+                    gvReports.Columns.Add(new BoundField { DataField = "TimeSpent", HeaderText = "Time Spent" });
+                    var siteReqField = new BoundField { DataField = "RequiredHours", HeaderText = "Required" };
+                    siteReqField.ItemStyle.HorizontalAlign = HorizontalAlign.Center;
+                    siteReqField.HeaderStyle.HorizontalAlign = HorizontalAlign.Center;
+                    gvReports.Columns.Add(siteReqField);
+                    gvReports.Columns.Add(new BoundField { DataField = "Variance", HeaderText = "Variance" });
+                    gvReports.Columns.Add(new BoundField { DataField = "Scans", HeaderText = "Scans" });
+                    if (includeFinancials)
+                    {
+                        gvReports.Columns.Add(new BoundField { DataField = "PayType", HeaderText = "Pay Type" });
+                        gvReports.Columns.Add(new BoundField { DataField = "Earnings", HeaderText = "Earnings", DataFormatString = "{0:0.00}" });
+                    }
+                    break;
+
+                case "Person":
+                    gvReports.Columns.Add(new BoundField { DataField = "PersonName", HeaderText = "Person" });
+                    gvReports.Columns.Add(new BoundField { DataField = "CardNumber", HeaderText = "Employee Code" });
+                    gvReports.Columns.Add(new BoundField { DataField = "ScanCount", HeaderText = "Scans" });
+                    gvReports.Columns.Add(new BoundField { DataField = "FirstScan", HeaderText = "First Scan", DataFormatString = "{0:yyyy-MM-dd HH:mm}" });
+                    gvReports.Columns.Add(new BoundField { DataField = "ShiftStartTime", HeaderText = "Shift Start" });
+                    gvReports.Columns.Add(new BoundField { DataField = "LastScan", HeaderText = "Last Scan", DataFormatString = "{0:yyyy-MM-dd HH:mm}" });
+                    gvReports.Columns.Add(new BoundField { DataField = "ShiftEndTime", HeaderText = "Shift End" });
+                    gvReports.Columns.Add(new BoundField { DataField = "TimeSpent", HeaderText = "Time Spent" });
+                    var personReqField = new BoundField { DataField = "RequiredHours", HeaderText = "Required" };
+                    personReqField.ItemStyle.HorizontalAlign = HorizontalAlign.Center;
+                    personReqField.HeaderStyle.HorizontalAlign = HorizontalAlign.Center;
+                    gvReports.Columns.Add(personReqField);
+                    gvReports.Columns.Add(new BoundField { DataField = "Variance", HeaderText = "Variance" });
+                    if (includeFinancials)
+                    {
+                        gvReports.Columns.Add(new BoundField { DataField = "PayType", HeaderText = "Pay Type" });
+                        gvReports.Columns.Add(new BoundField { DataField = "Earnings", HeaderText = "Earnings", DataFormatString = "{0:0.00}" });
+                    }
+                    break;
+
+                case "Shift":
+                    gvReports.Columns.Add(new BoundField { DataField = "ShiftName", HeaderText = "Shift" });
+                    gvReports.Columns.Add(new BoundField { DataField = "DepartmentName", HeaderText = "Department" });
+                    gvReports.Columns.Add(new BoundField { DataField = "ShiftStart", HeaderText = "Start" });
+                    gvReports.Columns.Add(new BoundField { DataField = "ShiftEnd", HeaderText = "End" });
+                    gvReports.Columns.Add(new BoundField { DataField = "ShiftHours", HeaderText = "Hours", DataFormatString = "{0:0.00}" });
+                    gvReports.Columns.Add(new BoundField { DataField = "Status", HeaderText = "Status" });
+                    break;
+
+                case "Reader":
+                    gvReports.Columns.Add(new BoundField { DataField = "DeviceIP", HeaderText = "Device IP" });
+                    gvReports.Columns.Add(new BoundField { DataField = "ReaderId", HeaderText = "Reader ID" });
+                    gvReports.Columns.Add(new BoundField { DataField = "TotalEvents", HeaderText = "Total Events" });
+                    gvReports.Columns.Add(new BoundField { DataField = "FirstEvent", HeaderText = "First Event", DataFormatString = "{0:yyyy-MM-dd HH:mm}" });
+                    gvReports.Columns.Add(new BoundField { DataField = "LastEvent", HeaderText = "Last Event", DataFormatString = "{0:yyyy-MM-dd HH:mm}" });
+                    break;
+
+                case "Emulated":
+                    gvReports.Columns.Add(new BoundField { DataField = "PersonName", HeaderText = "Person" });
+                    gvReports.Columns.Add(new BoundField { DataField = "CardNumber", HeaderText = "Employee Code" });
+                    gvReports.Columns.Add(new BoundField { DataField = "EventType", HeaderText = "Event" });
+                    gvReports.Columns.Add(new BoundField { DataField = "Timestamp", HeaderText = "Timestamp", DataFormatString = "{0:yyyy-MM-dd HH:mm:ss}" });
+                    gvReports.Columns.Add(new BoundField { DataField = "DeviceIP", HeaderText = "Device" });
+                    break;
+
+                case "SyncFail":
+                    gvReports.Columns.Add(new BoundField { DataField = "PersonName", HeaderText = "Person" });
+                    gvReports.Columns.Add(new BoundField { DataField = "EventType", HeaderText = "Event" });
+                    gvReports.Columns.Add(new BoundField { DataField = "Timestamp", HeaderText = "Timestamp", DataFormatString = "{0:yyyy-MM-dd HH:mm:ss}" });
+                    gvReports.Columns.Add(new BoundField { DataField = "DeviceIP", HeaderText = "Device" });
+                    break;
+
+                case "Hourly":
+                    gvReports.Columns.Add(new BoundField { DataField = "Hour", HeaderText = "Hour" });
+                    gvReports.Columns.Add(new BoundField { DataField = "Events", HeaderText = "Events" });
+                    break;
+
+                case "TopUsers":
+                    gvReports.Columns.Add(new BoundField { DataField = "PersonName", HeaderText = "Person" });
+                    gvReports.Columns.Add(new BoundField { DataField = "CardNumber", HeaderText = "Employee Code" });
+                    gvReports.Columns.Add(new BoundField { DataField = "Events", HeaderText = "Events" });
+                    break;
+
+                case "Missing":
+                    gvReports.Columns.Add(new BoundField { DataField = "PersonName", HeaderText = "Person" });
+                    gvReports.Columns.Add(new BoundField { DataField = "Events", HeaderText = "Events" });
+                    break;
+
+                case "Rollup":
+                    gvReports.Columns.Add(new BoundField { DataField = "SiteId", HeaderText = "Site" });
+                    gvReports.Columns.Add(new BoundField { DataField = "TotalEvents", HeaderText = "Total Events" });
+                    gvReports.Columns.Add(new BoundField { DataField = "UniquePersons", HeaderText = "Unique Persons" });
+                    gvReports.Columns.Add(new BoundField { DataField = "FirstEvent", HeaderText = "First Event", DataFormatString = "{0:yyyy-MM-dd HH:mm}" });
+                    gvReports.Columns.Add(new BoundField { DataField = "LastEvent", HeaderText = "Last Event", DataFormatString = "{0:yyyy-MM-dd HH:mm}" });
+                    break;
+            }
+        }
+
+        // ============================
+        // Conditional Formatting
+        // ============================
+
+        protected void gvReports_RowDataBound(object sender, GridViewRowEventArgs e)
+        {
+            if (e.Row.RowType != DataControlRowType.DataRow)
+                return;
+
+            DataRowView drv = e.Row.DataItem as DataRowView;
+            if (drv == null)
+                return;
+
+            string reportType = ddlReportType.SelectedValue;
+
+            // Per Site: Date(0), Person(1), Code(2), In(3), ShiftStart(4), Out(5), ShiftEnd(6), Status(7), TimeSpent(8), Required(9), Variance(10), Scans(11)
+            if (reportType == "Site")
+            {
+                bool isStillInside = drv.Row.Table.Columns.Contains("Status") && drv["Status"]?.ToString() == "Still Inside";
+                bool hasShift = drv.Row.Table.Columns.Contains("HasShift") && drv["HasShift"] != DBNull.Value && Convert.ToInt32(drv["HasShift"]) == 1;
+
+                // Shift Start — show exclamation if no shift assigned
+                if (!hasShift && e.Row.Cells.Count > 4)
+                {
+                    e.Row.Cells[4].Text = "\u2757 No shift assigned";
+                    e.Row.Cells[4].ForeColor = System.Drawing.Color.FromArgb(204, 102, 0);
+                    e.Row.Cells[4].Font.Bold = true;
+                }
+
+                // Shift End — show exclamation if no shift assigned
+                if (!hasShift && e.Row.Cells.Count > 6)
+                {
+                    e.Row.Cells[6].Text = "\u2757 No shift assigned";
+                    e.Row.Cells[6].ForeColor = System.Drawing.Color.FromArgb(204, 102, 0);
+                    e.Row.Cells[6].Font.Bold = true;
+                }
+
+                // Highlight "Still Inside" status
+                if (isStillInside && e.Row.Cells.Count > 7)
+                {
+                    e.Row.Cells[7].ForeColor = System.Drawing.Color.OrangeRed;
+                    e.Row.Cells[7].Font.Bold = true;
+                }
+
+                // Live TimeSpent — show in green with clock icon for Still Inside
+                if (isStillInside && e.Row.Cells.Count > 8 && !string.IsNullOrEmpty(e.Row.Cells[8].Text))
+                {
+                    e.Row.Cells[8].Text = "\u23F1 " + e.Row.Cells[8].Text;
+                    e.Row.Cells[8].ForeColor = System.Drawing.Color.FromArgb(0, 128, 0);
+                    e.Row.Cells[8].Font.Bold = true;
+                }
+
+                // RequiredHours — center align; show warning if no shift assigned
+                if (e.Row.Cells.Count > 9)
+                {
+                    e.Row.Cells[9].HorizontalAlign = HorizontalAlign.Center;
+                }
+                if (!hasShift && e.Row.Cells.Count > 9)
+                {
+                    e.Row.Cells[9].Text = "\u26A0\uFE0F Still to be set";
+                    e.Row.Cells[9].ForeColor = System.Drawing.Color.FromArgb(204, 102, 0);
+                    e.Row.Cells[9].Font.Bold = true;
+                    e.Row.Cells[9].Font.Size = FontUnit.Parse("11px");
+                }
+
+                // Variance — show N/A if no shift, red if still has remaining time, green if completed/exceeded
+                if (!hasShift && e.Row.Cells.Count > 10)
+                {
+                    e.Row.Cells[10].Text = "N/A";
+                    e.Row.Cells[10].ForeColor = System.Drawing.Color.Gray;
+                }
+                else if (drv.Row.Table.Columns.Contains("VarianceMinutes") && drv["VarianceMinutes"] != DBNull.Value && e.Row.Cells.Count > 10)
+                {
+                    int varianceMin;
+                    if (int.TryParse(drv["VarianceMinutes"].ToString(), out varianceMin))
+                    {
+                        if (varianceMin < 0)
+                        {
+                            // Under required hours
+                            e.Row.Cells[10].ForeColor = System.Drawing.Color.Red;
+                            e.Row.Cells[10].Font.Bold = true;
+                        }
+                        else
+                        {
+                            // Met or exceeded required hours
+                            e.Row.Cells[10].ForeColor = System.Drawing.Color.FromArgb(0, 128, 0);
+                            e.Row.Cells[10].Font.Bold = true;
+                        }
+                    }
+                }
+            }
+            // Per Person: Person(0), Code(1), Scans(2), First(3), ShiftStart(4), Last(5), ShiftEnd(6), TimeSpent(7), Required(8), Variance(9)
+            else if (reportType == "Person")
+            {
+                bool isStillInside = drv.Row.Table.Columns.Contains("ScanCount") && drv["ScanCount"] != DBNull.Value && Convert.ToInt32(drv["ScanCount"]) == 1;
+                bool hasShift = drv.Row.Table.Columns.Contains("HasShift") && drv["HasShift"] != DBNull.Value && Convert.ToInt32(drv["HasShift"]) == 1;
+
+                // Shift Start — show exclamation if no shift assigned
+                if (!hasShift && e.Row.Cells.Count > 4)
+                {
+                    e.Row.Cells[4].Text = "\u2757 No shift assigned";
+                    e.Row.Cells[4].ForeColor = System.Drawing.Color.FromArgb(204, 102, 0);
+                    e.Row.Cells[4].Font.Bold = true;
+                }
+
+                // Shift End — show exclamation if no shift assigned
+                if (!hasShift && e.Row.Cells.Count > 6)
+                {
+                    e.Row.Cells[6].Text = "\u2757 No shift assigned";
+                    e.Row.Cells[6].ForeColor = System.Drawing.Color.FromArgb(204, 102, 0);
+                    e.Row.Cells[6].Font.Bold = true;
+                }
+
+                // Live TimeSpent — show in green with clock icon for Still Inside
+                if (isStillInside && e.Row.Cells.Count > 7 && !string.IsNullOrEmpty(e.Row.Cells[7].Text))
+                {
+                    e.Row.Cells[7].Text = "\u23F1 " + e.Row.Cells[7].Text;
+                    e.Row.Cells[7].ForeColor = System.Drawing.Color.FromArgb(0, 128, 0);
+                    e.Row.Cells[7].Font.Bold = true;
+                }
+
+                // RequiredHours — center align; show warning if no shift assigned
+                if (e.Row.Cells.Count > 8)
+                {
+                    e.Row.Cells[8].HorizontalAlign = HorizontalAlign.Center;
+                }
+                if (!hasShift && e.Row.Cells.Count > 8)
+                {
+                    e.Row.Cells[8].Text = "\u26A0\uFE0F Still to be set";
+                    e.Row.Cells[8].ForeColor = System.Drawing.Color.FromArgb(204, 102, 0);
+                    e.Row.Cells[8].Font.Bold = true;
+                    e.Row.Cells[8].Font.Size = FontUnit.Parse("11px");
+                }
+
+                // Variance — show N/A if no shift, red if still has remaining time, green if completed/exceeded
+                if (!hasShift && e.Row.Cells.Count > 9)
+                {
+                    e.Row.Cells[9].Text = "N/A";
+                    e.Row.Cells[9].ForeColor = System.Drawing.Color.Gray;
+                }
+                else if (drv.Row.Table.Columns.Contains("VarianceMinutes") && drv["VarianceMinutes"] != DBNull.Value && e.Row.Cells.Count > 9)
+                {
+                    int varianceMin;
+                    if (int.TryParse(drv["VarianceMinutes"].ToString(), out varianceMin))
+                    {
+                        if (varianceMin < 0)
+                        {
+                            // Under required hours
+                            e.Row.Cells[9].ForeColor = System.Drawing.Color.Red;
+                            e.Row.Cells[9].Font.Bold = true;
+                        }
+                        else
+                        {
+                            // Met or exceeded required hours
+                            e.Row.Cells[9].ForeColor = System.Drawing.Color.FromArgb(0, 128, 0);
+                            e.Row.Cells[9].Font.Bold = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // ============================
+        // Paging
+        // ============================
+
+        protected void gvReports_PageIndexChanging(object sender, GridViewPageEventArgs e)
+        {
+            try
+            {
+                gvReports.PageIndex = e.NewPageIndex;
+
+                if (!TryGetDateRange(out DateTime fromDate, out DateTime toDate))
+                    return;
+
+                string siteId = ddlSites.SelectedValue;
+                string reportType = ddlReportType.SelectedValue;
+                LoadReportData(siteId, fromDate, toDate, reportType);
+            }
+            catch (Exception ex)
+            {
+                lblMessage.ForeColor = System.Drawing.Color.Red;
+                lblMessage.Text = "Error changing page.";
+            }
+        }
+
+        // ============================
+        // Export to Excel
+        // ============================
+
+        protected void btnExportExcel_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (!TryGetDateRange(out DateTime fromDate, out DateTime toDate))
+                    return;
+
+                string siteId = ddlSites.SelectedValue;
+                string reportType = ddlReportType.SelectedValue;
+                string siteName = ddlSites.SelectedItem != null ? ddlSites.SelectedItem.Text : "All Sites";
+                bool includeFinancials = chkIncludeFinancials.Checked;
+                string username = Session["Username"]?.ToString() ?? "Unknown";
+
+                DataTable reportData = GetReportDataTable(siteId, fromDate, toDate, reportType);
+
+                if (reportData == null || reportData.Rows.Count == 0)
+                {
+                    lblMessage.ForeColor = System.Drawing.Color.Red;
+                    lblMessage.Text = "No data to export. Generate a report first.";
+                    return;
+                }
+
+                var excludeCols = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    "HasShift", "VarianceMinutes"
+                };
+                if (!includeFinancials)
+                {
+                    excludeCols.Add("PayType");
+                    excludeCols.Add("Earnings");
+                }
+
+                string reportTitle = GetReportTitle(reportType);
+                string fileName = $"TimeAttendance_{reportType}_{fromDate:yyyyMMdd}_to_{toDate:yyyyMMdd}.xlsx";
+
+                using (var workbook = new XLWorkbook())
+                {
+                    // ===== SUMMARY SHEET =====
+                    var summarySheet = workbook.Worksheets.Add("Summary");
+                    int summaryRow = WriteSummarySheetHeader(summarySheet, reportTitle + " - Summary", siteName, fromDate, toDate, reportData.Rows.Count, username);
+
+                    if (reportType == "Site" && reportData.Columns.Contains("WorkDate"))
+                        summaryRow = WriteXlDailySummary(summarySheet, summaryRow, reportData);
+                    else
+                    {
+                        summarySheet.Cell(summaryRow, 1).Value = "Total Records";
+                        summarySheet.Cell(summaryRow, 2).Value = reportData.Rows.Count;
+                        summaryRow++;
+                    }
+
+                    summaryRow++; // blank separator before full data table
+                    int summaryLastDataRow;
+                    WriteXlDataTableCore(summarySheet, summaryRow, reportData, reportType, excludeCols, out summaryLastDataRow);
+                    WriteXlAutoSumRow(summarySheet, summaryRow, reportData, reportType, excludeCols, summaryRow, summaryLastDataRow);
+                    SetColumnWidths(summarySheet);
+
+                    // ===== PER-EMPLOYEE SHEETS (Site/Person reports) =====
+                    if ((reportType == "Site" || reportType == "Person") && reportData.Columns.Contains("PersonName"))
+                    {
+                        // Fetch pay information when financials are requested
+                        DataTable payInfo = null;
+                        var payLookup = new System.Collections.Generic.Dictionary<string, DataRow>(StringComparer.OrdinalIgnoreCase);
+                        if (includeFinancials)
+                        {
+                            payInfo = GetPayInformation(siteId, fromDate, toDate);
+                            if (payInfo != null)
+                            {
+                                foreach (DataRow payRow in payInfo.Rows)
+                                {
+                                    string pName = payRow["PersonName"]?.ToString() ?? "";
+                                    if (!string.IsNullOrEmpty(pName) && !payLookup.ContainsKey(pName))
+                                        payLookup[pName] = payRow;
+                                }
+                            }
+                        }
+
+                        var seen = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        var employeeNames = new System.Collections.Generic.List<string>();
+                        foreach (DataRow row in reportData.Rows)
+                        {
+                            string name = row["PersonName"]?.ToString() ?? "";
+                            if (!string.IsNullOrEmpty(name) && seen.Add(name))
+                                employeeNames.Add(name);
+                        }
+
+                        var usedSheetNames = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Summary" };
+                        foreach (string empName in employeeNames)
+                        {
+                            string sheetName = SanitizeSheetName(empName);
+                            string candidate = sheetName;
+                            int suffix = 2;
+                            while (!usedSheetNames.Add(candidate))
+                            {
+                                string sfx = "_" + suffix;
+                                candidate = sheetName.Length + sfx.Length > 31
+                                    ? sheetName.Substring(0, 31 - sfx.Length) + sfx
+                                    : sheetName + sfx;
+                                suffix++;
+                            }
+
+                            DataRow[] empRows = reportData.Select($"PersonName = '{empName.Replace("'", "''")}'");
+                            DataTable empTable = reportData.Clone();
+                            foreach (DataRow row in empRows)
+                                empTable.ImportRow(row);
+
+                            var empSheet = workbook.Worksheets.Add(candidate);
+                            int empRow = WriteSummarySheetHeader(empSheet, empName, siteName, fromDate, toDate, empTable.Rows.Count, username);
+
+                            // Write pay structure section when financials are included
+                            if (includeFinancials)
+                            {
+                                DataRow empPayRow;
+                                if (!payLookup.TryGetValue(empName, out empPayRow))
+                                {
+                                    // Fallback: build pay row from reportData columns if available
+                                    empPayRow = BuildPayRowFromReportData(empTable);
+                                }
+                                empRow = WriteXlPayStructure(empSheet, empRow, empPayRow);
+                            }
+
+                            int empLastDataRow;
+                            WriteXlDataTableCore(empSheet, empRow, empTable, reportType, excludeCols, out empLastDataRow);
+                            WriteXlAutoSumRow(empSheet, empRow, empTable, reportType, excludeCols, empRow, empLastDataRow);
+                            SetColumnWidths(empSheet);
+                        }
+                    }
+                    else
+                    {
+                        // Single data sheet for non-employee reports
+                        var dataSheet = workbook.Worksheets.Add("Data");
+                        int dataRow = WriteSummarySheetHeader(dataSheet, reportTitle + " - Data", siteName, fromDate, toDate, reportData.Rows.Count, username);
+                        int dataLastRow;
+                        WriteXlDataTableCore(dataSheet, dataRow, reportData, reportType, excludeCols, out dataLastRow);
+                        WriteXlAutoSumRow(dataSheet, dataRow, reportData, reportType, excludeCols, dataRow, dataLastRow);
+                        SetColumnWidths(dataSheet);
+                    }
+
+                    Response.Clear();
+                    Response.ContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+                    Response.AddHeader("Content-Disposition", $"attachment; filename={fileName}");
+
+                    using (var ms = new MemoryStream())
+                    {
+                        workbook.SaveAs(ms);
+                        Response.BinaryWrite(ms.ToArray());
+                    }
+                }
+
+                _exportCompleted = true;
+                HttpContext.Current.ApplicationInstance.CompleteRequest();
+            }
+            catch (Exception ex)
+            {
+                if (Response.IsClientConnected)
+                {
+                    // Extract the first stack frame that contains a line number
+                    string lineInfo = "";
+                    if (!string.IsNullOrEmpty(ex.StackTrace))
+                    {
+                        foreach (string frame in ex.StackTrace.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                        {
+                            if (frame.Contains(":line "))
+                            {
+                                lineInfo = " [" + frame.Trim() + "]";
+                                break;
+                            }
+                        }
+                    }
+                    lblMessage.ForeColor = System.Drawing.Color.Red;
+                    lblMessage.Text = $"Excel export error: {ex.GetType().Name} — {ex.Message}{lineInfo}";
+                }
+            }
+        }
+
+        // ============================
+        // ClosedXML Helper: Write Sheet Header
+        // ============================
+
+        private int WriteSummarySheetHeader(IXLWorksheet ws, string title, string siteName, DateTime fromDate, DateTime toDate, int recordCount, string username)
+        {
+            int row = 1;
+            var titleCell = ws.Cell(row, 1);
+            titleCell.Value = $"Time & Attendance - {title}";
+            titleCell.Style.Font.Bold = true;
+            titleCell.Style.Font.FontSize = 14;
+            titleCell.Style.Font.FontColor = XLColor.FromHtml("#0078D4");
+            row++;
+
+            ws.Cell(row, 1).Value = $"Site: {siteName}";
+            row++;
+            ws.Cell(row, 1).Value = $"Period: {fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd}";
+            row++;
+            ws.Cell(row, 1).Value = $"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss} | Records: {recordCount}";
+            row++;
+            ws.Cell(row, 1).Value = $"Generated by: {username}";
+            row++;
+            row++; // blank separator
+            return row;
+        }
+
+        // ============================
+        // ClosedXML Helper: Write Daily Summary
+        // ============================
+
+        private int WriteXlDailySummary(IXLWorksheet ws, int startRow, DataTable reportData)
+        {
+            int row = startRow;
+
+            // Section header
+            var secHeader = ws.Cell(row, 1);
+            secHeader.Value = "Daily Summary";
+            secHeader.Style.Font.Bold = true;
+            secHeader.Style.Fill.BackgroundColor = XLColor.FromHtml("#E8F0FE");
+            row++;
+
+            // Column headers
+            string[] headers = { "Date", "Employees", "Clocked Out", "Still Inside", "Total Scans", "Avg Time Spent" };
+            for (int c = 0; c < headers.Length; c++)
+            {
+                var cell = ws.Cell(row, c + 1);
+                cell.Value = headers[c];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#0078D4");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+            row++;
+
+            var dates = new System.Collections.Generic.SortedDictionary<string, int[]>();
+            foreach (DataRow dr in reportData.Rows)
+            {
+                if (dr["WorkDate"] == DBNull.Value) continue;
+                string dateKey = Convert.ToDateTime(dr["WorkDate"]).ToString("yyyy-MM-dd");
+                if (!dates.ContainsKey(dateKey)) dates[dateKey] = new int[5];
+                dates[dateKey][0]++;
+                string status = dr["Status"]?.ToString() ?? "";
+                if (status == "Clocked Out") dates[dateKey][1]++;
+                else dates[dateKey][2]++;
+                if (dr["Scans"] != DBNull.Value) dates[dateKey][3] += Convert.ToInt32(dr["Scans"]);
+                dates[dateKey][4] += ParseTimeSpentToMinutes(dr["TimeSpent"]?.ToString() ?? "");
+            }
+
+            bool alt = false;
+            foreach (var kvp in dates)
+            {
+                int avgMin = kvp.Value[0] > 0 ? kvp.Value[4] / kvp.Value[0] : 0;
+                ws.Cell(row, 1).Value = kvp.Key;
+                ws.Cell(row, 1).Style.DateFormat.Format = "yyyy-MM-dd";
+                ws.Cell(row, 2).Value = kvp.Value[0];
+                ws.Cell(row, 3).Value = kvp.Value[1];
+                ws.Cell(row, 4).Value = kvp.Value[2];
+                if (kvp.Value[2] > 0) ws.Cell(row, 4).Style.Font.FontColor = XLColor.OrangeRed;
+                ws.Cell(row, 5).Value = kvp.Value[3];
+                ws.Cell(row, 6).Value = $"{avgMin / 60}h {avgMin % 60}m";
+                if (alt)
+                    ws.Row(row).Style.Fill.BackgroundColor = XLColor.FromHtml("#F9F9F9");
+                alt = !alt;
+                row++;
+            }
+
+            row++; // blank row after summary
+            return row;
+        }
+
+        // ============================
+        // ClosedXML Helper: Write Data Table
+        // ============================
+
+        private void WriteXlDataTable(IXLWorksheet ws, int startRow, DataTable dt, string reportType, System.Collections.Generic.HashSet<string> excludeCols)
+        {
+            int endRow;
+            WriteXlDataTableCore(ws, startRow, dt, reportType, excludeCols, out endRow);
+        }
+
+        private void WriteXlDataTableCore(IXLWorksheet ws, int startRow, DataTable dt, string reportType, System.Collections.Generic.HashSet<string> excludeCols, out int lastDataRow)
+        {
+            var displayCols = new System.Collections.Generic.List<DataColumn>();
+            foreach (DataColumn col in dt.Columns)
+                if (!excludeCols.Contains(col.ColumnName))
+                    displayCols.Add(col);
+
+            int row = startRow;
+
+            // Column headers — center aligned
+            for (int c = 0; c < displayCols.Count; c++)
+            {
+                var cell = ws.Cell(row, c + 1);
+                cell.Value = FormatColumnHeader(displayCols[c].ColumnName);
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#0078D4");
+                cell.Style.Font.FontColor = XLColor.White;
+                cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            }
+            row++;
+
+            // Data rows
+            bool alt = false;
+            foreach (DataRow dr in dt.Rows)
+            {
+                bool hasShift = dt.Columns.Contains("HasShift") && dr["HasShift"] != DBNull.Value && Convert.ToInt32(dr["HasShift"]) == 1;
+                bool isStillInside = dt.Columns.Contains("Status") && dr["Status"]?.ToString() == "Still Inside";
+
+                for (int c = 0; c < displayCols.Count; c++)
+                {
+                    var col = displayCols[c];
+                    var cell = ws.Cell(row, c + 1);
+                    object val = dr[col];
+
+                    // Center align all data cells
+                    cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                    // Shift-aware overrides must be checked before the DBNull/type branches
+                    // because the underlying DB value may be NULL when no shift is assigned.
+                    if ((col.ColumnName == "ShiftStartTime" || col.ColumnName == "ShiftEndTime") && !hasShift)
+                    {
+                        cell.Value = "No shift assigned";
+                        cell.Style.Font.FontColor = XLColor.FromHtml("#CC6600");
+                    }
+                    else if (col.ColumnName == "Variance" && !hasShift)
+                    {
+                        cell.Value = "N/A";
+                        cell.Style.Font.FontColor = XLColor.Gray;
+                    }
+                    else if (col.ColumnName == "RequiredHours" && !hasShift)
+                    {
+                        cell.Value = "Still to be set";
+                        cell.Style.Font.FontColor = XLColor.FromHtml("#CC6600");
+                    }
+                    else if (val == DBNull.Value || val == null)
+                    {
+                        cell.Value = string.Empty;
+                    }
+                    else if (col.DataType == typeof(DateTime))
+                    {
+                        DateTime dtVal = (DateTime)val;
+                        cell.Value = dtVal;
+                        cell.Style.DateFormat.Format = col.ColumnName.Contains("Date") || col.ColumnName == "WorkDate"
+                            ? "yyyy-MM-dd"
+                            : "HH:mm:ss";
+                    }
+                    else if (col.DataType == typeof(decimal) || col.DataType == typeof(double))
+                    {
+                        if ((col.ColumnName == "Earnings" || col.ColumnName == "BasicPay") && isStillInside)
+                        {
+                            cell.Value = string.Empty;
+                        }
+                        else
+                        {
+                            cell.Value = Convert.ToDouble(val);
+                            cell.Style.NumberFormat.Format = col.ColumnName == "BasicPay" || col.ColumnName == "Earnings"
+                                ? "#,##0.00"
+                                : "0.00";
+                        }
+                    }
+                    else if (col.DataType == typeof(int) || col.DataType == typeof(long))
+                    {
+                        cell.Value = Convert.ToInt64(val);
+                    }
+                    else
+                    {
+                        string strVal = val.ToString();
+                        cell.Value = strVal;
+
+                        // Conditional formatting for non-null string values
+                        if (col.ColumnName == "Status" && strVal == "Still Inside")
+                            cell.Style.Font.FontColor = XLColor.OrangeRed;
+                        else if (col.ColumnName == "Variance" && dt.Columns.Contains("VarianceMinutes") && dr["VarianceMinutes"] != DBNull.Value)
+                        {
+                            int varMin = Convert.ToInt32(dr["VarianceMinutes"]);
+                            // VarianceMinutes = TimeSpent - Required: negative = under (red), positive = over (green)
+                            cell.Style.Font.FontColor = varMin < 0 ? XLColor.Red : XLColor.FromHtml("#28A745");
+                            cell.Style.Font.Bold = true;
+                        }
+                        else if (col.ColumnName == "TimeSpent" && isStillInside)
+                        {
+                            cell.Style.Font.FontColor = XLColor.FromHtml("#008000");
+                            cell.Style.Font.Bold = true;
+                        }
+                    }
+
+                    if (alt)
+                        cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#F9F9F9");
+                }
+                alt = !alt;
+                row++;
+            }
+            lastDataRow = row - 1;
+        }
+
+        /// <summary>
+        /// Writes a totals row with SUM formulas for Scans and Earnings columns.
+        /// </summary>
+        private void WriteXlAutoSumRow(IXLWorksheet ws, int startRow, DataTable dt, string reportType, System.Collections.Generic.HashSet<string> excludeCols, int headerRow, int lastDataRow)
+        {
+            if (lastDataRow < headerRow + 1)
+                return; // no data rows to sum
+
+            var displayCols = new System.Collections.Generic.List<DataColumn>();
+            foreach (DataColumn col in dt.Columns)
+                if (!excludeCols.Contains(col.ColumnName))
+                    displayCols.Add(col);
+
+            int sumRow = lastDataRow + 1;
+
+            // Identify which columns should get a SUM formula
+            var sumColumns = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "Scans", "ScanCount", "Earnings"
+            };
+
+            // First data row is headerRow + 1
+            int firstDataRow = headerRow + 1;
+
+            bool hasSumColumn = false;
+            for (int c = 0; c < displayCols.Count; c++)
+            {
+                string colName = displayCols[c].ColumnName;
+                if (sumColumns.Contains(colName))
+                {
+                    hasSumColumn = true;
+                    break;
+                }
+            }
+
+            if (!hasSumColumn)
+                return;
+
+            for (int c = 0; c < displayCols.Count; c++)
+            {
+                var cell = ws.Cell(sumRow, c + 1);
+                string colName = displayCols[c].ColumnName;
+
+                if (c == 0)
+                {
+                    // Label in the first column
+                    cell.Value = "TOTAL";
+                    cell.Style.Font.Bold = true;
+                    cell.Style.Font.FontColor = XLColor.FromHtml("#0078D4");
+                }
+
+                if (sumColumns.Contains(colName))
+                {
+                    // Excel column letter
+                    string colLetter = GetExcelColumnLetter(c + 1);
+                    cell.FormulaA1 = $"SUM({colLetter}{firstDataRow}:{colLetter}{lastDataRow})";
+                    cell.Style.Font.Bold = true;
+                    cell.Style.Font.FontColor = XLColor.FromHtml("#0078D4");
+                    if (colName == "Earnings")
+                        cell.Style.NumberFormat.Format = "#,##0.00";
+                }
+            }
+
+            // Light top border on the totals row
+            ws.Range(sumRow, 1, sumRow, displayCols.Count).Style.Border.TopBorder = XLBorderStyleValues.Thin;
+            ws.Range(sumRow, 1, sumRow, displayCols.Count).Style.Border.TopBorderColor = XLColor.FromHtml("#0078D4");
+        }
+
+        private string GetExcelColumnLetter(int columnNumber)
+        {
+            string letter = "";
+            while (columnNumber > 0)
+            {
+                int mod = (columnNumber - 1) % 26;
+                letter = (char)('A' + mod) + letter;
+                columnNumber = (columnNumber - 1) / 26;
+            }
+            return letter;
+        }
+
+        // ============================
+        // Excel Helper: Get Raw DataTable
+        // ============================
+
+        private DataTable GetReportDataTable(string siteId, DateTime fromDate, DateTime toDate, string reportType)
+        {
+            using (SqlConnection conn = new SqlConnection(_connStr))
+            {
+                string query = BuildQuery(siteId, reportType);
+
+                using (SqlCommand cmd = new SqlCommand(query, conn))
+                {
+                    cmd.Parameters.AddWithValue("@FromDate", fromDate.Date);
+                    cmd.Parameters.AddWithValue("@ToDate", toDate.Date.AddDays(1).AddSeconds(-1));
+
+                    DateTime now;
+                    if (!string.IsNullOrEmpty(hfClientNow.Value) && DateTime.TryParse(hfClientNow.Value, out DateTime clientNow))
+                    {
+                        now = toDate.Date == clientNow.Date ? clientNow : toDate.Date.Add(clientNow.TimeOfDay);
+                    }
+                    else
+                    {
+                        now = toDate.Date == DateTime.Today ? DateTime.Now : toDate.Date.Add(DateTime.Now.TimeOfDay);
+                    }
+                    cmd.Parameters.AddWithValue("@Now", now);
+
+                    if (!string.IsNullOrEmpty(siteId))
+                        cmd.Parameters.AddWithValue("@SiteID", siteId);
+
+                    cmd.CommandTimeout = GetCommandTimeout(fromDate, toDate);
+
+                    using (SqlDataAdapter da = new SqlDataAdapter(cmd))
+                    {
+                        DataTable dt = new DataTable();
+                        da.Fill(dt);
+                        return dt;
+                    }
+                }
+            }
+        }
+
+        // ============================
+        // Excel Helper: Enrich Report With Pay Columns
+        // ============================
+
+        private void EnrichReportWithPayColumns(DataTable reportData, DataTable payInfo, string reportType)
+        {
+            // Add pay columns to the main report data table
+            if (!reportData.Columns.Contains("PayType"))
+                reportData.Columns.Add("PayType", typeof(string));
+            if (!reportData.Columns.Contains("Rate"))
+                reportData.Columns.Add("Rate", typeof(string));
+            if (!reportData.Columns.Contains("BasicPay"))
+                reportData.Columns.Add("BasicPay", typeof(decimal));
+
+            // Build lookup from payInfo keyed by PersonName + WorkDate (for Site) or PersonName (for Person)
+            var payLookup = new System.Collections.Generic.Dictionary<string, DataRow>(StringComparer.OrdinalIgnoreCase);
+            foreach (DataRow payRow in payInfo.Rows)
+            {
+                string person = payRow["PersonName"]?.ToString() ?? "";
+                string key;
+                if (reportType == "Site" && payInfo.Columns.Contains("WorkDate") && payRow["WorkDate"] != DBNull.Value)
+                {
+                    key = person + "|" + Convert.ToDateTime(payRow["WorkDate"]).ToString("yyyy-MM-dd");
+                }
+                else
+                {
+                    key = person;
+                }
+                if (!payLookup.ContainsKey(key))
+                    payLookup[key] = payRow;
+            }
+
+            foreach (DataRow row in reportData.Rows)
+            {
+                string person = row["PersonName"]?.ToString() ?? "";
+                string key;
+                if (reportType == "Site" && reportData.Columns.Contains("WorkDate") && row["WorkDate"] != DBNull.Value)
+                {
+                    key = person + "|" + Convert.ToDateTime(row["WorkDate"]).ToString("yyyy-MM-dd");
+                }
+                else
+                {
+                    key = person;
+                }
+
+                DataRow payRow;
+                if (!payLookup.TryGetValue(key, out payRow))
+                {
+                    // Try person-only fallback
+                    payLookup.TryGetValue(person, out payRow);
+                }
+
+                if (payRow != null)
+                {
+                    string payType = payRow["PayType"]?.ToString() ?? "";
+                    decimal hourlyRate = payInfo.Columns.Contains("HourlyRate") && payRow["HourlyRate"] != DBNull.Value ? Convert.ToDecimal(payRow["HourlyRate"]) : 0;
+                    decimal weeklyRate = payInfo.Columns.Contains("WeeklyRate") && payRow["WeeklyRate"] != DBNull.Value ? Convert.ToDecimal(payRow["WeeklyRate"]) : 0;
+                    decimal monthlyRate = payInfo.Columns.Contains("MonthlyRate") && payRow["MonthlyRate"] != DBNull.Value ? Convert.ToDecimal(payRow["MonthlyRate"]) : 0;
+                    decimal actualHrs = payInfo.Columns.Contains("ActualHours") && payRow["ActualHours"] != DBNull.Value ? Convert.ToDecimal(payRow["ActualHours"]) : 0;
+
+                    row["PayType"] = payType;
+
+                    switch (payType.ToLower())
+                    {
+                        case "hourly":
+                            row["Rate"] = hourlyRate.ToString("0.00") + "/hr";
+                            row["BasicPay"] = actualHrs * hourlyRate;
+                            break;
+                        case "weekly":
+                            row["Rate"] = weeklyRate.ToString("0.00") + "/wk";
+                            row["BasicPay"] = weeklyRate > 0 ? weeklyRate / 5m : 0;
+                            break;
+                        default:
+                            row["Rate"] = monthlyRate > 0 ? monthlyRate.ToString("0.00") + "/mo" : "";
+                            row["BasicPay"] = monthlyRate > 0 ? monthlyRate / 22m : 0;
+                            break;
+                    }
+                }
+                else
+                {
+                    row["PayType"] = "";
+                    row["Rate"] = "";
+                    row["BasicPay"] = 0m;
+                }
+            }
+        }
+
+        // ============================
+        // Excel Helper: Get Pay Info
+        // ============================
+
+        private DataTable GetPayInformation(string siteId, DateTime fromDate, DateTime toDate)
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string siteFilter = !string.IsNullOrEmpty(siteId)
+                        ? " AND CAST(r.SiteId AS NVARCHAR(MAX)) = @SiteID"
+                        : "";
+
+                    string query = @"
+SELECT 
+    r.PersonName,
+    MAX(r.CardNumber) AS EmployeeCode,
+    MAX(d.DepartmentName) AS Department,
+    MAX(e.PayType) AS PayType,
+    MAX(e.HourlyRate) AS HourlyRate,
+    MAX(e.WeeklyRate) AS WeeklyRate,
+    MAX(e.MonthlyRate) AS MonthlyRate,
+    MAX(sh.ShiftName) AS ShiftName,
+    CONVERT(VARCHAR(5), MAX(sh.StartTime), 108) AS ShiftStart,
+    CONVERT(VARCHAR(5), MAX(sh.EndTime), 108) AS ShiftEnd,
+    CAST(CASE WHEN MAX(sh.StartTime) IS NOT NULL AND MAX(sh.EndTime) IS NOT NULL
+         THEN DATEDIFF(MINUTE, CAST(MAX(sh.StartTime) AS TIME), CAST(MAX(sh.EndTime) AS TIME)) / 60.0
+         ELSE 0 END AS DECIMAL(10,2)) AS DailyRequiredHours,
+    CONVERT(DATE, r.Timestamp) AS WorkDate,
+    MIN(r.Timestamp) AS ClockIn,
+    CASE WHEN MIN(r.Timestamp) = MAX(r.Timestamp) THEN NULL ELSE MAX(r.Timestamp) END AS ClockOut,
+    CASE WHEN MIN(r.Timestamp) = MAX(r.Timestamp) THEN 'Still Inside' ELSE 'Clocked Out' END AS Status,
+    CAST(CASE 
+        WHEN MIN(r.Timestamp) = MAX(r.Timestamp) THEN 0
+        WHEN MAX(sh.StartTime) IS NOT NULL
+            THEN DATEDIFF(MINUTE, CAST(MAX(sh.StartTime) AS TIME), CAST(MAX(r.Timestamp) AS TIME)) / 60.0
+        ELSE DATEDIFF(MINUTE, MIN(r.Timestamp), MAX(r.Timestamp)) / 60.0
+    END AS DECIMAL(10,2)) AS ActualHours,
+    CAST(CASE 
+        WHEN MAX(sh.StartTime) IS NOT NULL AND MAX(sh.EndTime) IS NOT NULL THEN
+            CASE WHEN MIN(r.Timestamp) = MAX(r.Timestamp) THEN 0
+            ELSE 
+                (DATEDIFF(MINUTE, CAST(MAX(sh.StartTime) AS TIME), CAST(MAX(r.Timestamp) AS TIME)) / 60.0)
+                - (DATEDIFF(MINUTE, CAST(MAX(sh.StartTime) AS TIME), CAST(MAX(sh.EndTime) AS TIME)) / 60.0)
+            END
+        ELSE 0
+    END AS DECIMAL(10,2)) AS OvertimeHours
+FROM ReaderEvents r
+LEFT JOIN Employees e ON r.PersonName = e.NameSurname 
+    AND CAST(r.SiteId AS NVARCHAR(MAX)) = CAST(e.SiteID AS NVARCHAR(MAX))
+LEFT JOIN EmployeeShifts esh ON esh.EmployeeID = e.EmployeeID AND esh.IsActive = 1
+LEFT JOIN Shifts sh ON sh.ShiftID = esh.ShiftID AND sh.IsActive = 1
+LEFT JOIN Departments d ON e.DepartmentID = d.DepartmentID
+WHERE r.Timestamp BETWEEN @FromDate AND @ToDate
+  AND r.PersonName IS NOT NULL AND r.PersonName <> ''" + siteFilter.Replace("SiteId", "r.SiteId") + @"
+GROUP BY r.PersonName, CONVERT(DATE, r.Timestamp)
+ORDER BY r.PersonName, WorkDate";
+
+            using (SqlCommand cmd = new SqlCommand(query, conn))
+            {
+                cmd.Parameters.AddWithValue("@FromDate", fromDate.Date);
+                cmd.Parameters.AddWithValue("@ToDate", toDate.Date.AddDays(1).AddSeconds(-1));
+                if (!string.IsNullOrEmpty(siteId))
+                    cmd.Parameters.AddWithValue("@SiteID", siteId);
+                cmd.CommandTimeout = GetCommandTimeout(fromDate, toDate);
+
+                using (SqlDataAdapter da = new SqlDataAdapter(cmd))
+                {
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+                    return dt;
+                }
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        System.Diagnostics.Debug.WriteLine($"GetPayInformation error: {ex.Message}");
+        return null;
+    }
+}
+
+        // ============================
+        // ClosedXML Helper: Write Pay Structure
+        // ============================
+
+        private int WriteXlPayStructure(IXLWorksheet ws, int startRow, DataRow payRow)
+        {
+            int row = startRow;
+
+            // Section header
+            var secHeader = ws.Cell(row, 1);
+            secHeader.Value = "Pay Structure";
+            secHeader.Style.Font.Bold = true;
+            secHeader.Style.Font.FontSize = 12;
+            secHeader.Style.Font.FontColor = XLColor.FromHtml("#0078D4");
+            secHeader.Style.Fill.BackgroundColor = XLColor.FromHtml("#E8F0FE");
+            ws.Range(row, 1, row, 4).Merge();
+            row++;
+
+            if (payRow == null)
+            {
+                ws.Cell(row, 1).Value = "No pay information available for this employee.";
+                ws.Cell(row, 1).Style.Font.Italic = true;
+                ws.Cell(row, 1).Style.Font.FontColor = XLColor.Gray;
+                row += 2;
+                return row;
+            }
+
+            // Label styling helper
+            Action<IXLCell> styleLabel = (cell) =>
+            {
+                cell.Style.Font.Bold = true;
+                cell.Style.Font.FontColor = XLColor.FromHtml("#333333");
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#F0F0F0");
+            };
+
+            Action<IXLCell> styleValue = (cell) =>
+            {
+                cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+            };
+
+            string payType = payRow.Table.Columns.Contains("PayType") && payRow["PayType"] != DBNull.Value
+                ? payRow["PayType"].ToString() : "";
+            decimal hourlyRate = payRow.Table.Columns.Contains("HourlyRate") && payRow["HourlyRate"] != DBNull.Value
+                ? Convert.ToDecimal(payRow["HourlyRate"]) : 0;
+            decimal weeklyRate = payRow.Table.Columns.Contains("WeeklyRate") && payRow["WeeklyRate"] != DBNull.Value
+                ? Convert.ToDecimal(payRow["WeeklyRate"]) : 0;
+            decimal monthlyRate = payRow.Table.Columns.Contains("MonthlyRate") && payRow["MonthlyRate"] != DBNull.Value
+                ? Convert.ToDecimal(payRow["MonthlyRate"]) : 0;
+            string department = payRow.Table.Columns.Contains("Department") && payRow["Department"] != DBNull.Value
+                ? payRow["Department"].ToString() : "";
+            string shiftName = payRow.Table.Columns.Contains("ShiftName") && payRow["ShiftName"] != DBNull.Value
+                ? payRow["ShiftName"].ToString() : "";
+            string shiftStart = payRow.Table.Columns.Contains("ShiftStart") && payRow["ShiftStart"] != DBNull.Value
+                ? payRow["ShiftStart"].ToString() : "";
+            string shiftEnd = payRow.Table.Columns.Contains("ShiftEnd") && payRow["ShiftEnd"] != DBNull.Value
+                ? payRow["ShiftEnd"].ToString() : "";
+            decimal dailyRequired = payRow.Table.Columns.Contains("DailyRequiredHours") && payRow["DailyRequiredHours"] != DBNull.Value
+                ? Convert.ToDecimal(payRow["DailyRequiredHours"]) : 0;
+            string empCode = payRow.Table.Columns.Contains("EmployeeCode") && payRow["EmployeeCode"] != DBNull.Value
+                ? payRow["EmployeeCode"].ToString() : "";
+
+            // Row: Employee Code
+            if (!string.IsNullOrEmpty(empCode))
+            {
+                var lbl = ws.Cell(row, 1); lbl.Value = "Employee Code"; styleLabel(lbl);
+                var val = ws.Cell(row, 2); val.Value = empCode; styleValue(val);
+                row++;
+            }
+
+            // Row: Department
+            if (!string.IsNullOrEmpty(department))
+            {
+                var lbl = ws.Cell(row, 1); lbl.Value = "Department"; styleLabel(lbl);
+                var val = ws.Cell(row, 2); val.Value = department; styleValue(val);
+                row++;
+            }
+
+            // Row: Pay Type
+            {
+                var lbl = ws.Cell(row, 1); lbl.Value = "Pay Type"; styleLabel(lbl);
+                var val = ws.Cell(row, 2); val.Value = !string.IsNullOrEmpty(payType) ? payType : "Not Set"; styleValue(val);
+                row++;
+            }
+
+            // Row: Rates
+            if (hourlyRate > 0)
+            {
+                var lbl = ws.Cell(row, 1); lbl.Value = "Hourly Rate"; styleLabel(lbl);
+                var val = ws.Cell(row, 2); val.Value = hourlyRate; val.Style.NumberFormat.Format = "#,##0.00"; styleValue(val);
+                row++;
+            }
+            if (weeklyRate > 0)
+            {
+                var lbl = ws.Cell(row, 1); lbl.Value = "Weekly Rate"; styleLabel(lbl);
+                var val = ws.Cell(row, 2); val.Value = weeklyRate; val.Style.NumberFormat.Format = "#,##0.00"; styleValue(val);
+                row++;
+            }
+            if (monthlyRate > 0)
+            {
+                var lbl = ws.Cell(row, 1); lbl.Value = "Monthly Rate"; styleLabel(lbl);
+                var val = ws.Cell(row, 2); val.Value = monthlyRate; val.Style.NumberFormat.Format = "#,##0.00"; styleValue(val);
+                row++;
+            }
+
+            // Row: Effective rate per hour based on pay type
+            {
+                decimal effectivePerHour = 0;
+                switch ((payType ?? "").ToLower())
+                {
+                    case "hourly": effectivePerHour = hourlyRate; break;
+                    case "weekly": effectivePerHour = weeklyRate > 0 ? weeklyRate / 40m : 0; break;
+                    case "monthly": effectivePerHour = monthlyRate > 0 ? monthlyRate / 176m : 0; break;
+                }
+                if (effectivePerHour > 0)
+                {
+                    var lbl = ws.Cell(row, 1); lbl.Value = "Effective Rate/Hour"; styleLabel(lbl);
+                    var val = ws.Cell(row, 2); val.Value = effectivePerHour; val.Style.NumberFormat.Format = "#,##0.00"; styleValue(val);
+                    row++;
+                }
+            }
+
+            // Row: Shift
+            if (!string.IsNullOrEmpty(shiftName))
+            {
+                var lbl = ws.Cell(row, 1); lbl.Value = "Shift"; styleLabel(lbl);
+                string shiftDetail = shiftName;
+                if (!string.IsNullOrEmpty(shiftStart) && !string.IsNullOrEmpty(shiftEnd))
+                    shiftDetail += $" ({shiftStart} - {shiftEnd})";
+                var val = ws.Cell(row, 2); val.Value = shiftDetail; styleValue(val);
+                row++;
+            }
+
+            // Row: Daily Required Hours
+            if (dailyRequired > 0)
+            {
+                var lbl = ws.Cell(row, 1); lbl.Value = "Daily Required Hours"; styleLabel(lbl);
+                var val = ws.Cell(row, 2); val.Value = dailyRequired; val.Style.NumberFormat.Format = "0.00"; styleValue(val);
+                row++;
+            }
+
+            // Add a thin border around the pay structure block
+            if (row > startRow + 1)
+            {
+                var range = ws.Range(startRow + 1, 1, row - 1, 2);
+                range.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                range.Style.Border.OutsideBorderColor = XLColor.FromHtml("#0078D4");
+            }
+
+            row++; // blank separator
+            return row;
+        }
+
+        // ============================
+        // ClosedXML Helper: Set Column Widths
+        // ============================
+
+        private void SetColumnWidths(IXLWorksheet ws)
+        {
+            // AdjustToContents() in ClosedXML 0.97.0 throws FileNotFoundException
+            // due to a missing font-metrics resource. Use fixed widths per column type instead.
+            foreach (IXLColumn col in ws.ColumnsUsed())
+            {
+                // Peek at the header cell to infer a sensible width
+                string header = ws.Cell(1, col.ColumnNumber()).GetString();
+                if (string.IsNullOrEmpty(header))
+                    header = col.FirstCellUsed()?.GetString() ?? "";
+
+                int width;
+                if (header.Contains("Name") || header.Contains("Person"))
+                    width = 28;
+                else if (header.Contains("Date") || header.Contains("Time") || header.Contains("Scan") || header.Contains("Clock"))
+                    width = 20;
+                else if (header.Contains("Variance") || header.Contains("Required") || header.Contains("Spent") || header.Contains("Shift"))
+                    width = 18;
+                else if (header.Contains("Pay") || header.Contains("Earn") || header.Contains("Rate"))
+                    width = 16;
+                else if (header.Contains("Status"))
+                    width = 16;
+                else
+                    width = 14;
+
+                col.Width = width;
+            }
+        }
+
+        // ============================
+        // Excel Helper: Sanitize Sheet Name
+        // ============================
+
+        private string SanitizeSheetName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "Unknown";
+            // Excel sheet names: max 31 chars, no special chars: \ / * ? : [ ]
+            string safe = name;
+            foreach (char c in new[] { '\\', '/', '*', '?', ':', '[', ']' })
+                safe = safe.Replace(c, '_');
+            if (safe.Length > 31)
+                safe = safe.Substring(0, 31);
+            return safe.Trim();
+        }
+
+        // (HTML-based Excel helpers removed — now using ClosedXML)
+
+        private void _unused_placeholder_WriteExcelHeader(TextWriter sw, string title, string siteName, DateTime fromDate, DateTime toDate, int recordCount, int colCount)
+        {
+            sw.WriteLine("<table>");
+
+            // Company/Report Title
+            sw.WriteLine("<tr>");
+            sw.WriteLine($"  <td colspan=\"{colCount}\" class=\"title-cell\">📊 Time &amp; Attendance - {HttpUtility.HtmlEncode(title)}</td>");
+            sw.WriteLine("</tr>");
+
+            // Site
+            sw.WriteLine("<tr>");
+            sw.WriteLine($"  <td colspan=\"{colCount}\" class=\"subtitle-cell\">🏢 Site: {HttpUtility.HtmlEncode(siteName)}</td>");
+            sw.WriteLine("</tr>");
+
+            // Date Range
+            sw.WriteLine("<tr>");
+            sw.WriteLine($"  <td colspan=\"{colCount}\" class=\"subtitle-cell\">📅 Period: {fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd}</td>");
+            sw.WriteLine("</tr>");
+
+            // Generated
+            sw.WriteLine("<tr>");
+            sw.WriteLine($"  <td colspan=\"{colCount}\" class=\"subtitle-cell\">🕐 Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss} | Records: {recordCount}</td>");
+            sw.WriteLine("</tr>");
+
+            // Generated By
+            string username = Session["Username"]?.ToString() ?? "Unknown";
+            sw.WriteLine("<tr>");
+            sw.WriteLine($"  <td colspan=\"{colCount}\" class=\"subtitle-cell\">👤 Generated by: {HttpUtility.HtmlEncode(username)}</td>");
+            sw.WriteLine("</tr>");
+
+            // Blank separator row
+            sw.WriteLine("<tr><td colspan=\"" + colCount + "\">&nbsp;</td></tr>");
+        }
+
+        // ============================
+        // Excel Helper: Write Data Table
+        // ============================
+
+        private void WriteExcelDataTable(TextWriter sw, DataTable dt, string reportType, System.Collections.Generic.HashSet<string> excludeCols)
+        {
+            var displayCols = new System.Collections.Generic.List<DataColumn>();
+            foreach (DataColumn col in dt.Columns)
+            {
+                if (!excludeCols.Contains(col.ColumnName))
+                    displayCols.Add(col);
+            }
+
+            // Column Headers
+            sw.WriteLine("<tr>");
+            foreach (DataColumn col in displayCols)
+            {
+                string headerText = FormatColumnHeader(col.ColumnName);
+                sw.WriteLine($"  <td class=\"header-cell\">{HttpUtility.HtmlEncode(headerText)}</td>");
+            }
+            sw.WriteLine("</tr>");
+
+            // Data Rows
+            int rowIndex = 0;
+            foreach (DataRow row in dt.Rows)
+            {
+                string rowClass = rowIndex % 2 == 1 ? " class=\"alt-row\"" : "";
+                sw.WriteLine($"<tr{rowClass}>");
+
+                foreach (DataColumn col in displayCols)
+                {
+                    object val = row[col];
+                    string cellClass = "data-cell";
+                    string cellValue = "";
+
+                    if (val == DBNull.Value || val == null)
+                    {
+                        cellValue = "";
+                    }
+                    else if (col.DataType == typeof(DateTime))
+                    {
+                        DateTime dtVal = (DateTime)val;
+                        if (col.ColumnName.Contains("Date") || col.ColumnName == "WorkDate")
+                        {
+                            cellClass = "data-cell-date";
+                            cellValue = dtVal.ToString("yyyy-MM-dd");
+                        }
+                        else
+                        {
+                            cellClass = "data-cell-time";
+                            cellValue = dtVal.ToString("HH:mm:ss");
+                        }
+                    }
+                    else if (col.DataType == typeof(decimal) || col.DataType == typeof(double))
+                    {
+                        bool isStillInsideRow = dt.Columns.Contains("Status") && row["Status"]?.ToString() == "Still Inside";
+                        if ((col.ColumnName == "BasicPay" || col.ColumnName == "Earnings") && isStillInsideRow)
+                        {
+                            cellClass = "data-cell";
+                            cellValue = "";
+                        }
+                        else
+                        {
+                            cellClass = (col.ColumnName == "BasicPay" || col.ColumnName == "Earnings") ? "data-cell-currency" : "data-cell-number";
+                            cellValue = Convert.ToDecimal(val).ToString("0.00");
+                        }
+                    }
+                    else
+                    {
+                        cellValue = val.ToString();
+
+                        // Conditional formatting
+                        if (col.ColumnName == "Status" && cellValue == "Still Inside")
+                        {
+                            cellClass = "warning-cell";
+                        }
+                        else if (col.ColumnName == "Variance")
+                        {
+                            bool hasShift = dt.Columns.Contains("HasShift") && row["HasShift"] != DBNull.Value && Convert.ToInt32(row["HasShift"]) == 1;
+                            if (!hasShift)
+                            {
+                                cellValue = "N/A";
+                                cellClass = "data-cell";
+                            }
+                            else if (dt.Columns.Contains("VarianceMinutes") && row["VarianceMinutes"] != DBNull.Value)
+                            {
+                                int varMin = Convert.ToInt32(row["VarianceMinutes"]);
+                                cellClass = varMin > 0 ? "deficit-cell" : "surplus-cell";
+                            }
+                        }
+                    }
+
+                    sw.WriteLine($"  <td class=\"{cellClass}\">{HttpUtility.HtmlEncode(cellValue)}</td>");
+                }
+
+                sw.WriteLine("</tr>");
+                rowIndex++;
+
+                // Flush periodically for large datasets to avoid excessive memory usage
+                if (rowIndex % 500 == 0)
+                    sw.Flush();
+            }
+        }
+
+        // ============================
+        // Excel Helper: Daily Summary
+        // ============================
+
+        private void WriteExcelDailySummary(TextWriter sw, DataTable reportData)
+        {
+            sw.WriteLine("<tr><td colspan=\"12\">&nbsp;</td></tr>");
+            sw.WriteLine("<tr><td colspan=\"12\" class=\"section-header\">📅 Daily Summary</td></tr>");
+
+            sw.WriteLine("<tr>");
+            sw.WriteLine("  <td class=\"header-cell\">Date</td>");
+            sw.WriteLine("  <td class=\"header-cell\">Employees</td>");
+            sw.WriteLine("  <td class=\"header-cell\">Clocked Out</td>");
+            sw.WriteLine("  <td class=\"header-cell\">Still Inside</td>");
+            sw.WriteLine("  <td class=\"header-cell\">Total Scans</td>");
+            sw.WriteLine("  <td class=\"header-cell\">Avg Time Spent</td>");
+            sw.WriteLine("</tr>");
+
+            var dates = new System.Collections.Generic.SortedDictionary<string, int[]>();
+            // int[0]=employees, int[1]=clockedOut, int[2]=stillInside, int[3]=totalScans, int[4]=totalMinutes
+
+            foreach (DataRow row in reportData.Rows)
+            {
+                if (row["WorkDate"] == DBNull.Value) continue;
+
+                string dateKey = Convert.ToDateTime(row["WorkDate"]).ToString("yyyy-MM-dd");
+                if (!dates.ContainsKey(dateKey))
+                    dates[dateKey] = new int[5];
+
+                dates[dateKey][0]++;
+
+                string status = row["Status"]?.ToString() ?? "";
+                if (status == "Clocked Out")
+                    dates[dateKey][1]++;
+                else
+                    dates[dateKey][2]++;
+
+                if (row["Scans"] != DBNull.Value)
+                    dates[dateKey][3] += Convert.ToInt32(row["Scans"]);
+
+                // Parse TimeSpent "Xh Ym" to minutes
+                string timeSpent = row["TimeSpent"]?.ToString() ?? "";
+                dates[dateKey][4] += ParseTimeSpentToMinutes(timeSpent);
+            }
+
+            foreach (var kvp in dates)
+            {
+                int avgMinutes = kvp.Value[0] > 0 ? kvp.Value[4] / kvp.Value[0] : 0;
+                string avgTime = $"{avgMinutes / 60}h {avgMinutes % 60}m";
+
+                sw.WriteLine("<tr>");
+                sw.WriteLine($"  <td class=\"data-cell-date\">{kvp.Key}</td>");
+                sw.WriteLine($"  <td class=\"data-cell\">{kvp.Value[0]}</td>");
+                sw.WriteLine($"  <td class=\"data-cell\">{kvp.Value[1]}</td>");
+                sw.WriteLine($"  <td class=\"{(kvp.Value[2] > 0 ? "warning-cell" : "data-cell")}\">{kvp.Value[2]}</td>");
+                sw.WriteLine($"  <td class=\"data-cell\">{kvp.Value[3]}</td>");
+                sw.WriteLine($"  <td class=\"data-cell\">{avgTime}</td>");
+                sw.WriteLine("</tr>");
+            }
+        }
+
+        // ============================
+        // Excel Helper: Pay Summary Sheet
+        // ============================
+
+        private void WriteExcelPaySummary(TextWriter sw, DataTable payInfo, string siteName, DateTime fromDate, DateTime toDate)
+        {
+            sw.WriteLine("<table>");
+
+            // Header
+            sw.WriteLine("<tr><td colspan=\"12\" class=\"title-cell\">💰 Pay &amp; Attendance Summary</td></tr>");
+            sw.WriteLine($"<tr><td colspan=\"12\" class=\"subtitle-cell\">🏢 Site: {HttpUtility.HtmlEncode(siteName)}</td></tr>");
+            sw.WriteLine($"<tr><td colspan=\"12\" class=\"subtitle-cell\">📅 Period: {fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd}</td></tr>");
+            sw.WriteLine("<tr><td colspan=\"12\">&nbsp;</td></tr>");
+
+            // ===== SECTION 1: DETAILED DAILY BREAKDOWN =====
+            sw.WriteLine("<tr><td colspan=\"12\" class=\"section-header\">📋 Detailed Daily Attendance &amp; Pay</td></tr>");
+
+            sw.WriteLine("<tr>");
+            sw.WriteLine("  <td class=\"header-cell\">Employee</td>");
+            sw.WriteLine("  <td class=\"header-cell\">Code</td>");
+            sw.WriteLine("  <td class=\"header-cell\">Department</td>");
+            sw.WriteLine("  <td class=\"header-cell\">Date</td>");
+            sw.WriteLine("  <td class=\"header-cell\">Clock In</td>");
+            sw.WriteLine("  <td class=\"header-cell\">Clock Out</td>");
+            sw.WriteLine("  <td class=\"header-cell\">Pay Type</td>");
+            sw.WriteLine("  <td class=\"header-cell\">Rate</td>");
+            sw.WriteLine("  <td class=\"header-cell\">Actual Hrs</td>");
+            sw.WriteLine("  <td class=\"header-cell\">Required Hrs</td>");
+            sw.WriteLine("  <td class=\"header-cell\">Overtime Hrs</td>");
+            sw.WriteLine("  <td class=\"header-cell\">Basic Pay</td>");
+            sw.WriteLine("</tr>");
+
+            int rowIndex = 0;
+            foreach (DataRow row in payInfo.Rows)
+            {
+                string rowClass = rowIndex % 2 == 1 ? " class=\"alt-row\"" : "";
+                string payType = row["PayType"]?.ToString() ?? "";
+                decimal hourlyRate = row["HourlyRate"] != DBNull.Value ? Convert.ToDecimal(row["HourlyRate"]) : 0;
+                decimal weeklyRate = row["WeeklyRate"] != DBNull.Value ? Convert.ToDecimal(row["WeeklyRate"]) : 0;
+                decimal monthlyRate = row["MonthlyRate"] != DBNull.Value ? Convert.ToDecimal(row["MonthlyRate"]) : 0;
+                decimal actualHrs = row["ActualHours"] != DBNull.Value ? Convert.ToDecimal(row["ActualHours"]) : 0;
+                decimal requiredHrs = row["DailyRequiredHours"] != DBNull.Value ? Convert.ToDecimal(row["DailyRequiredHours"]) : 0;
+                decimal overtimeHrs = row["OvertimeHours"] != DBNull.Value ? Convert.ToDecimal(row["OvertimeHours"]) : 0;
+                if (overtimeHrs < 0) overtimeHrs = 0;
+
+                string rateDisplay;
+                decimal dailyBasicPay;
+                switch (payType.ToLower())
+                {
+                    case "hourly":
+                        rateDisplay = hourlyRate.ToString("0.00") + "/hr";
+                        dailyBasicPay = actualHrs * hourlyRate;
+                        break;
+                    case "weekly":
+                        rateDisplay = weeklyRate.ToString("0.00") + "/wk";
+                        dailyBasicPay = weeklyRate > 0 ? weeklyRate / 5m : 0;
+                        break;
+                    default:
+                        rateDisplay = monthlyRate.ToString("0.00") + "/mo";
+                        dailyBasicPay = monthlyRate > 0 ? monthlyRate / 22m : 0;
+                        break;
+                }
+
+                string personName = row["PersonName"]?.ToString() ?? "";
+                string empCode = row["EmployeeCode"]?.ToString() ?? "";
+                string dept = row["Department"]?.ToString() ?? "";
+                string workDate = row["WorkDate"] != DBNull.Value ? Convert.ToDateTime(row["WorkDate"]).ToString("yyyy-MM-dd") : "";
+                string clockIn = row["ClockIn"] != DBNull.Value ? Convert.ToDateTime(row["ClockIn"]).ToString("HH:mm:ss") : "";
+                string clockOut = row["ClockOut"] != DBNull.Value ? Convert.ToDateTime(row["ClockOut"]).ToString("HH:mm:ss") : "";
+
+                sw.WriteLine($"<tr{rowClass}>");
+                sw.WriteLine($"  <td class=\"data-cell\">{HttpUtility.HtmlEncode(personName)}</td>");
+                sw.WriteLine($"  <td class=\"data-cell\">{HttpUtility.HtmlEncode(empCode)}</td>");
+                sw.WriteLine($"  <td class=\"data-cell\">{HttpUtility.HtmlEncode(dept)}</td>");
+                sw.WriteLine($"  <td class=\"data-cell-date\">{workDate}</td>");
+                sw.WriteLine($"  <td class=\"data-cell-time\">{clockIn}</td>");
+                sw.WriteLine($"  <td class=\"data-cell-time\">{clockOut}</td>");
+                sw.WriteLine($"  <td class=\"data-cell\">{HttpUtility.HtmlEncode(payType)}</td>");
+                sw.WriteLine($"  <td class=\"data-cell\">{HttpUtility.HtmlEncode(rateDisplay)}</td>");
+                sw.WriteLine($"  <td class=\"data-cell-number\">{actualHrs:0.00}</td>");
+                sw.WriteLine($"  <td class=\"data-cell-number\">{requiredHrs:0.00}</td>");
+                sw.WriteLine($"  <td class=\"{(overtimeHrs > 0 ? "surplus-cell" : "data-cell-number")}\">{overtimeHrs:0.00}</td>");
+                sw.WriteLine($"  <td class=\"data-cell-currency\">{dailyBasicPay:0.00}</td>");
+                sw.WriteLine("</tr>");
+
+                rowIndex++;
+
+                if (rowIndex % 500 == 0)
+                    sw.Flush();
+            }
+
+            sw.WriteLine("</table>");
+        }
+
+        // ============================
+        // Export to PDF
+        // ============================
+
+        protected void btnExportPDF_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (!TryGetDateRange(out DateTime fromDate, out DateTime toDate))
+                    return;
+
+                string siteId = ddlSites.SelectedValue;
+                string reportType = ddlReportType.SelectedValue;
+                string siteName = ddlSites.SelectedItem != null ? ddlSites.SelectedItem.Text : "All Sites";
+                string username = Session["Username"]?.ToString() ?? "Unknown";
+
+                DataTable reportData = GetReportDataTable(siteId, fromDate, toDate, reportType);
+
+                if (reportData == null || reportData.Rows.Count == 0)
+                {
+                    lblMessage.ForeColor = System.Drawing.Color.Red;
+                    lblMessage.Text = "No data to export. Generate a report first.";
+                    return;
+                }
+
+                string reportTitle = GetReportTitle(reportType);
+                string fileName = $"TimeAttendance_{reportType}_{fromDate:yyyyMMdd}_to_{toDate:yyyyMMdd}.pdf";
+
+                using (MemoryStream ms = new MemoryStream())
+                {
+                    Document doc = new Document(PageSize.A4.Rotate(), 25, 25, 30, 30);
+                    PdfWriter.GetInstance(doc, ms);
+                    doc.Open();
+
+                    Font titleFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 14, BaseColor.BLACK);
+                    Font subtitleFont = FontFactory.GetFont(FontFactory.HELVETICA, 10, BaseColor.DARK_GRAY);
+                    Font headerFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 8, BaseColor.WHITE);
+                    Font cellFont = FontFactory.GetFont(FontFactory.HELVETICA, 8, BaseColor.BLACK);
+                    Font cellBoldFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 8, BaseColor.BLACK);
+
+                    BaseColor headerBg = new BaseColor(0, 120, 212);
+                    BaseColor altRowBg = new BaseColor(249, 249, 249);
+
+                    // Title
+                    doc.Add(new Paragraph($"Time & Attendance - {reportTitle}", titleFont));
+                    doc.Add(new Paragraph($"Site: {siteName}", subtitleFont));
+                    doc.Add(new Paragraph($"Period: {fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd}", subtitleFont));
+                    doc.Add(new Paragraph($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss} by {username}", subtitleFont));
+                    doc.Add(new Paragraph(" "));
+
+                    // Determine visible columns (exclude internal ones)
+                    var excludeCols = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        "HasShift", "VarianceMinutes"
+                    };
+                    if (!chkIncludeFinancials.Checked)
+                    {
+                        excludeCols.Add("PayType");
+                        excludeCols.Add("Earnings");
+                    }
+
+                    var displayCols = new System.Collections.Generic.List<DataColumn>();
+                    foreach (DataColumn col in reportData.Columns)
+                    {
+                        if (!excludeCols.Contains(col.ColumnName))
+                            displayCols.Add(col);
+                    }
+
+                    PdfPTable table = new PdfPTable(displayCols.Count);
+                    table.WidthPercentage = 100;
+
+                    // Headers
+                    foreach (DataColumn col in displayCols)
+                    {
+                        PdfPCell hCell = new PdfPCell(new Phrase(FormatColumnHeader(col.ColumnName), headerFont));
+                        hCell.BackgroundColor = headerBg;
+                        hCell.Padding = 4;
+                        table.AddCell(hCell);
+                    }
+
+                    // Data rows
+                    int rowIdx = 0;
+                    foreach (DataRow row in reportData.Rows)
+                    {
+                        bool isStillInside = reportData.Columns.Contains("Status") && row["Status"]?.ToString() == "Still Inside";
+                        BaseColor rowBg = rowIdx % 2 == 1 ? altRowBg : BaseColor.WHITE;
+                        foreach (DataColumn col in displayCols)
+                        {
+                            object val = row[col];
+                            string cellValue = "";
+                            if (val != DBNull.Value && val != null)
+                            {
+                                if (col.DataType == typeof(DateTime))
+                                {
+                                    DateTime dtVal = (DateTime)val;
+                                    cellValue = col.ColumnName.Contains("Date") || col.ColumnName == "WorkDate"
+                                        ? dtVal.ToString("yyyy-MM-dd")
+                                        : dtVal.ToString("HH:mm:ss");
+                                }
+                                else if (col.DataType == typeof(decimal) || col.DataType == typeof(double))
+                                {
+                                    if ((col.ColumnName == "Earnings" || col.ColumnName == "BasicPay") && isStillInside)
+                                        cellValue = "";
+                                    else
+                                        cellValue = Convert.ToDecimal(val).ToString("0.00");
+                                }
+                                else
+                                {
+                                    cellValue = val.ToString();
+                                }
+                            }
+                            AddPdfCell(table, cellValue, cellFont, rowBg);
+                        }
+                        rowIdx++;
+                    }
+
+                    doc.Add(table);
+
+                    // Footer
+                    Paragraph footer = new Paragraph(
+                        $"\nReport generated on {DateTime.Now:yyyy-MM-dd HH:mm:ss} by {username}" +
+                        $"\nRecords: {reportData.Rows.Count}",
+                        subtitleFont);
+                    footer.SpacingBefore = 15;
+                    doc.Add(footer);
+
+                    doc.Close();
+
+                    byte[] pdfBytes = ms.ToArray();
+
+                    if (!Response.IsClientConnected)
+                        return;
+
+                    Response.Clear();
+                    Response.ContentType = "application/pdf";
+                    Response.AddHeader("Content-Disposition", $"attachment; filename={fileName}");
+                    Response.OutputStream.Write(pdfBytes, 0, pdfBytes.Length);
+                    Response.OutputStream.Flush();
+                    _exportCompleted = true;
+                    HttpContext.Current.ApplicationInstance.CompleteRequest();
+                }
+            }
+            catch (HttpException httpEx) when (IsClientDisconnectError(httpEx))
+            {
+                // Client closed the connection (e.g. cancelled download) — safe to ignore
+                System.Diagnostics.Debug.WriteLine($"Client disconnected during PDF export: {httpEx.Message}");
+            }
+            catch (Exception ex)
+            {
+                if (Response.IsClientConnected)
+                {
+                    lblMessage.ForeColor = System.Drawing.Color.Red;
+                    lblMessage.Text = "Error exporting to PDF.";
+                }
+            }
+        }
+
+        private void AddPdfCell(PdfPTable table, string text, Font font, BaseColor bgColor)
+        {
+            PdfPCell cell = new PdfPCell(new Phrase(text, font));
+            cell.BackgroundColor = bgColor;
+            cell.Padding = 3;
+            table.AddCell(cell);
+        }
+
+        // ============================
+        // PDF Helper: Get Payroll Finance Data
+        // ============================
+
+        private DataTable GetPayrollFinanceData(string siteId, DateTime fromDate, DateTime toDate)
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string siteFilter = !string.IsNullOrEmpty(siteId)
+                        ? " AND CAST(r.SiteId AS NVARCHAR(MAX)) = @SiteID"
+                        : "";
+
+                    string query = @"
+SELECT 
+    r.PersonName,
+    MAX(r.CardNumber) AS EmployeeCode,
+    MAX(d.DepartmentName) AS Department,
+    MAX(e.PayType) AS PayType,
+    MAX(e.HourlyRate) AS HourlyRate,
+    MAX(e.WeeklyRate) AS WeeklyRate,
+    MAX(e.MonthlyRate) AS MonthlyRate,
+    MAX(sh.ShiftName) AS ShiftName,
+    CONVERT(VARCHAR(5), MAX(sh.StartTime), 108) AS ShiftStart,
+    CONVERT(VARCHAR(5), MAX(sh.EndTime), 108) AS ShiftEnd,
+    CAST(CASE WHEN MAX(sh.StartTime) IS NOT NULL AND MAX(sh.EndTime) IS NOT NULL
+         THEN DATEDIFF(MINUTE, CAST(MAX(sh.StartTime) AS TIME), CAST(MAX(sh.EndTime) AS TIME)) / 60.0
+         ELSE 0 END AS DECIMAL(10,2)) AS DailyRequiredHours,
+    CONVERT(DATE, r.Timestamp) AS WorkDate,
+    MIN(r.Timestamp) AS ClockIn,
+    CASE WHEN MIN(r.Timestamp) = MAX(r.Timestamp) THEN NULL ELSE MAX(r.Timestamp) END AS ClockOut,
+    CASE WHEN MIN(r.Timestamp) = MAX(r.Timestamp) THEN 'Still Inside' ELSE 'Clocked Out' END AS Status,
+    CAST(CASE 
+        WHEN MIN(r.Timestamp) = MAX(r.Timestamp) THEN 0
+        WHEN MAX(sh.StartTime) IS NOT NULL
+            THEN DATEDIFF(MINUTE, CAST(MAX(sh.StartTime) AS TIME), CAST(MAX(r.Timestamp) AS TIME)) / 60.0
+        ELSE DATEDIFF(MINUTE, MIN(r.Timestamp), MAX(r.Timestamp)) / 60.0
+    END AS DECIMAL(10,2)) AS ActualHours,
+    CAST(CASE 
+        WHEN MAX(sh.StartTime) IS NOT NULL AND MAX(sh.EndTime) IS NOT NULL THEN
+            CASE WHEN MIN(r.Timestamp) = MAX(r.Timestamp) THEN 0
+            ELSE 
+                (DATEDIFF(MINUTE, CAST(MAX(sh.StartTime) AS TIME), CAST(MAX(r.Timestamp) AS TIME)) / 60.0)
+                - (DATEDIFF(MINUTE, CAST(MAX(sh.StartTime) AS TIME), CAST(MAX(sh.EndTime) AS TIME)) / 60.0)
+            END
+        ELSE 0
+    END AS DECIMAL(10,2)) AS OvertimeHours,
+    ISNULL((SELECT SUM(a.Amount) FROM Allowances a WHERE a.EmployeeID = MAX(e.EmployeeID) AND a.IsActive = 1
+        AND a.EffectiveFromDate <= CONVERT(DATE, r.Timestamp) 
+        AND (a.EffectiveToDate IS NULL OR a.EffectiveToDate >= CONVERT(DATE, r.Timestamp))), 0) AS Allowances,
+    ISNULL((SELECT SUM(dd.Amount) FROM Deductions dd WHERE dd.EmployeeID = MAX(e.EmployeeID) AND dd.IsActive = 1
+        AND dd.EffectiveFromDate <= CONVERT(DATE, r.Timestamp) 
+        AND (dd.EffectiveToDate IS NULL OR dd.EffectiveToDate >= CONVERT(DATE, r.Timestamp))), 0) AS Deductions
+FROM ReaderEvents r
+LEFT JOIN Employees e ON r.PersonName = e.NameSurname 
+    AND CAST(r.SiteId AS NVARCHAR(MAX)) = CAST(e.SiteID AS NVARCHAR(MAX))
+LEFT JOIN EmployeeShifts esh ON esh.EmployeeID = e.EmployeeID AND esh.IsActive = 1
+LEFT JOIN Shifts sh ON sh.ShiftID = esh.ShiftID AND sh.IsActive = 1
+LEFT JOIN Departments d ON e.DepartmentID = d.DepartmentID
+WHERE r.Timestamp BETWEEN @FromDate AND @ToDate
+  AND r.PersonName IS NOT NULL AND r.PersonName <> ''" + siteFilter.Replace("SiteId", "r.SiteId") + @"
+GROUP BY r.PersonName, CONVERT(DATE, r.Timestamp)
+ORDER BY r.PersonName, WorkDate";
+
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@FromDate", fromDate.Date);
+                        cmd.Parameters.AddWithValue("@ToDate", toDate.Date.AddDays(1).AddSeconds(-1));
+                        if (!string.IsNullOrEmpty(siteId))
+                            cmd.Parameters.AddWithValue("@SiteID", siteId);
+                        cmd.CommandTimeout = GetCommandTimeout(fromDate, toDate);
+
+                        using (SqlDataAdapter da = new SqlDataAdapter(cmd))
+                        {
+                            DataTable dt = new DataTable();
+                            da.Fill(dt);
+                            return dt;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"GetPayrollFinanceData error: {ex.Message}");
+                return null;
+            }
+        }
+
+        // ============================
+        // Helper Methods
+        // ============================
+
+        private static bool IsClientDisconnectError(HttpException ex)
+        {
+            // 0x800704CD = "An operation was attempted on a nonexistent network connection"
+            // (the remote host / browser closed the connection)
+            const int ERROR_CONNECTION_ABORT = unchecked((int)0x800704CD);
+            return ex.ErrorCode == ERROR_CONNECTION_ABORT;
+        }
+
+        private int GetCommandTimeout(DateTime fromDate, DateTime toDate)
+        {
+            int days = (toDate - fromDate).Days;
+            if (days > 180) return 120;
+            if (days > 90) return 90;
+            if (days > 30) return 60;
+            return 30;
+        }
+
+        private string GetReportTitle(string reportType)
+        {
+            switch (reportType)
+            {
+                case "Site": return "Per Site Report";
+                case "Person": return "Per Person Report";
+                case "Shift": return "Shift Report";
+                case "Reader": return "Reader Activity Report";
+                case "Emulated": return "Emulated Events Report";
+                case "SyncFail": return "Sync Failures Report";
+                case "Hourly": return "Hourly Distribution Report";
+                case "TopUsers": return "Top Users Report";
+                case "Missing": return "Missing Names Report";
+                case "Rollup": return "Site Rollup Report";
+                default: return "Report";
+            }
+        }
+
+        private string FormatColumnHeader(string columnName)
+        {
+            if (string.IsNullOrEmpty(columnName)) return "";
+            // Insert spaces before uppercase letters for camelCase/PascalCase names
+            var sb = new System.Text.StringBuilder();
+            foreach (char c in columnName)
+            {
+                if (char.IsUpper(c) && sb.Length > 0)
+                    sb.Append(' ');
+                sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        private int ParseTimeSpentToMinutes(string timeSpent)
+        {
+            int totalMinutes = 0;
+            if (string.IsNullOrEmpty(timeSpent)) return 0;
+            try
+            {
+                // Parse "Xh Ym" format
+                string[] parts = timeSpent.Replace("h", "").Replace("m", "").Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 1)
+                {
+                    int hours;
+                    if (int.TryParse(parts[0], out hours))
+                        totalMinutes += hours * 60;
+                }
+                if (parts.Length >= 2)
+                {
+                    int mins;
+                    if (int.TryParse(parts[1], out mins))
+                        totalMinutes += mins;
+                }
+            }
+            catch { }
+            return totalMinutes;
+        }
+
+        // ============================
+        // Logout
+        // ============================
+
+        protected void btnLogout_Click(object sender, EventArgs e)
+        {
+            Session.Clear();
+            Session.Abandon();
+            Response.Redirect("Login.aspx", false);
+            Context.ApplicationInstance.CompleteRequest();
+        }
+    }
+}
+

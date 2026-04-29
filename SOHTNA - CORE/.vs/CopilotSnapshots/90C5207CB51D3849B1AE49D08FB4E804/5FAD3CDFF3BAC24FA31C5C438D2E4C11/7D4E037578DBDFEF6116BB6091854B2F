@@ -1,0 +1,976 @@
+﻿using System;
+using System.Data;
+using System.Data.SqlClient;
+using System.Web.UI.WebControls;
+
+namespace TimeAttendance.WebForms
+{
+    public partial class SystemSettings : System.Web.UI.Page
+    {
+        private string _connStr = Properties.Settings.Default.SQLCon;
+
+        // SiteId of the currently logged-in Admin — all reads/writes are scoped to this.
+        private string _siteId;
+
+        // Client-locale hidden fields — populated by the browser's Intl API on first load.
+        protected global::System.Web.UI.WebControls.HiddenField hfClientTimezone;
+        protected global::System.Web.UI.WebControls.HiddenField hfClientCurrency;
+        protected global::System.Web.UI.WebControls.HiddenField hfClientDateFormat;
+
+        // Returns true when the given column exists on the given table.
+        // Used to guard SiteId queries before the migration script has been run.
+        private bool ColumnExists(SqlConnection conn, string tableName, string columnName)
+        {
+            string sql = @"SELECT COUNT(1) FROM INFORMATION_SCHEMA.COLUMNS
+                           WHERE TABLE_NAME = @t AND COLUMN_NAME = @c";
+            using (SqlCommand cmd = new SqlCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@t", tableName);
+                cmd.Parameters.AddWithValue("@c", columnName);
+                if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+                return (int)cmd.ExecuteScalar() > 0;
+            }
+        }
+
+        // Returns true when the given table exists in the database.
+        // Used to skip queries against tables that may not have been created yet.
+        private bool TableExists(SqlConnection conn, string tableName)
+        {
+            string sql = @"SELECT COUNT(1) FROM INFORMATION_SCHEMA.TABLES
+                           WHERE TABLE_NAME = @t";
+            using (SqlCommand cmd = new SqlCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@t", tableName);
+                if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+                return (int)cmd.ExecuteScalar() > 0;
+            }
+        }
+
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            if (Session["Username"] == null || Session["Role"]?.ToString() != "Admin")
+            {
+                Response.Redirect("Login.aspx");
+                return;
+            }
+
+            _siteId = Session["SiteId"]?.ToString() ?? "DEFAULT";
+
+            if (!IsPostBack)
+            {
+                lblSiteContext.Text = _siteId;
+                LoadGeneralSettings();
+                LoadAttendanceSettings();
+                LoadLeaveSettings();
+                LoadEmailSettings();
+                LoadSecuritySettings();
+                LoadNotificationSettings();
+                LoadFeatureToggles();
+            }
+            else
+            {
+                // Keep the site label visible on every postback
+                lblSiteContext.Text = _siteId;
+            }
+        }
+
+        #region Load Settings Methods
+
+        private void LoadGeneralSettings()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query;
+                    if (ColumnExists(conn, "SystemSettings", "SiteId"))
+                    {
+                        query = @"
+                            SELECT SettingKey, SettingValue
+                            FROM SystemSettings
+                            WHERE Category = 'General' AND IsActive = 1
+                              AND SiteId = CASE
+                                    WHEN EXISTS (SELECT 1 FROM SystemSettings WHERE Category='General' AND IsActive=1 AND SiteId=@SiteId)
+                                    THEN @SiteId ELSE 'DEFAULT' END";
+                    }
+                    else
+                    {
+                        query = @"
+                            SELECT SettingKey, SettingValue
+                            FROM SystemSettings
+                            WHERE Category = 'General' AND IsActive = 1";
+                    }
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@SiteId", _siteId);
+                    SqlDataAdapter da = new SqlDataAdapter(cmd);
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+
+                    foreach (DataRow row in dt.Rows)
+                    {
+                        string key = row["SettingKey"].ToString();
+                        string value = row["SettingValue"].ToString();
+
+                        switch (key)
+                        {
+                            case "CompanyName":   txtCompanyName.Text = value; break;
+                            case "CompanyEmail":  txtCompanyEmail.Text = value; break;
+                            case "CompanyPhone":  txtCompanyPhone.Text = value; break;
+                            case "TimeZone":      TrySetDropDown(ddlTimeZone, value); break;
+                            case "Currency":      TrySetDropDown(ddlCurrency, value); break;
+                            case "DateFormat":    TrySetDropDown(ddlDateFormat, value); break;
+                            case "MaintenanceMode": chkMaintenanceMode.Checked = value.ToLower() == "true"; break;
+                        }
+                    }
+
+                    // If no saved DB value exists for timezone/currency/date format,
+                    // fall back to the values detected from the client browser (Intl API).
+                    if (ddlTimeZone.SelectedIndex == 0 && !string.IsNullOrEmpty(hfClientTimezone.Value))
+                        TrySetDropDown(ddlTimeZone, hfClientTimezone.Value);
+
+                    if (ddlCurrency.SelectedIndex == 0 && !string.IsNullOrEmpty(hfClientCurrency.Value))
+                        TrySetDropDown(ddlCurrency, hfClientCurrency.Value);
+
+                    if (ddlDateFormat.SelectedIndex == 0 && !string.IsNullOrEmpty(hfClientDateFormat.Value))
+                        TrySetDropDown(ddlDateFormat, hfClientDateFormat.Value);
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error loading general settings: " + ex.Message, "error");
+            }
+        }
+
+        private void LoadAttendanceSettings()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query;
+                    if (ColumnExists(conn, "AttendanceSettings", "SiteId"))
+                    {
+                        query = @"
+                            SELECT TOP 1 * FROM AttendanceSettings
+                            WHERE SiteId = CASE
+                                    WHEN EXISTS (SELECT 1 FROM AttendanceSettings WHERE SiteId=@SiteId)
+                                    THEN @SiteId ELSE 'DEFAULT' END
+                            ORDER BY AttendanceSettingID DESC";
+                    }
+                    else
+                    {
+                        query = @"SELECT TOP 1 * FROM AttendanceSettings ORDER BY AttendanceSettingID DESC";
+                    }
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@SiteId", _siteId);
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            txtLateArrivalThreshold.Text    = reader["LateArrivalThreshold"].ToString();
+                            txtEarlyDepartureThreshold.Text = reader["EarlyDepartureThreshold"].ToString();
+                            txtGracePeriod.Text             = reader["GracePeriodMinutes"].ToString();
+                            txtMinAttendance.Text           = reader["MinimumAttendancePercentage"].ToString();
+                            chkAutoCheckOut.Checked         = (bool)reader["AllowAutoCheckOut"];
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error loading attendance settings: " + ex.Message, "error");
+            }
+        }
+
+        private void LoadLeaveSettings()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = @"
+                        SELECT lt.LeaveTypeID, lt.LeaveTypeName, ls.AllocationPerYear, ls.EncashableLeaves
+                        FROM LeaveTypes lt
+                        LEFT JOIN LeaveSettings ls ON lt.LeaveTypeID = ls.LeaveTypeID
+                        WHERE lt.IsActive = 1
+                        ORDER BY lt.LeaveTypeName";
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    SqlDataAdapter da = new SqlDataAdapter(cmd);
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+
+                    gvLeaveTypes.DataSource = dt;
+                    gvLeaveTypes.DataBind();
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error loading leave settings: " + ex.Message, "error");
+            }
+        }
+
+        private void LoadEmailSettings()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query;
+                    if (ColumnExists(conn, "EmailConfiguration", "SiteId"))
+                    {
+                        query = @"
+                            SELECT TOP 1 * FROM EmailConfiguration
+                            WHERE IsActive = 1
+                              AND SiteId = CASE
+                                    WHEN EXISTS (SELECT 1 FROM EmailConfiguration WHERE IsActive=1 AND SiteId=@SiteId)
+                                    THEN @SiteId ELSE 'DEFAULT' END
+                            ORDER BY EmailConfigID DESC";
+                    }
+                    else
+                    {
+                        query = @"SELECT TOP 1 * FROM EmailConfiguration WHERE IsActive = 1 ORDER BY EmailConfigID DESC";
+                    }
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@SiteId", _siteId);
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            txtSMTPServer.Text       = reader["SMTPServer"].ToString();
+                            txtSMTPPort.Text         = reader["SMTPPort"].ToString();
+                            txtFromEmail.Text        = reader["FromEmail"].ToString();
+                            txtFromDisplayName.Text  = reader["FromDisplayName"].ToString();
+                            txtEmailUsername.Text    = reader["Username"].ToString();
+                            chkEnableSSL.Checked     = (bool)reader["EnableSSL"];
+                            chkEnableTLS.Checked     = (bool)reader["EnableTLS"];
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error loading email settings: " + ex.Message, "error");
+            }
+        }
+
+        private void LoadSecuritySettings()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query;
+                    if (ColumnExists(conn, "SecuritySettings", "SiteId"))
+                    {
+                        query = @"
+                            SELECT TOP 1 * FROM SecuritySettings
+                            WHERE SiteId = CASE
+                                    WHEN EXISTS (SELECT 1 FROM SecuritySettings WHERE SiteId=@SiteId)
+                                    THEN @SiteId ELSE 'DEFAULT' END
+                            ORDER BY SecuritySettingID DESC";
+                    }
+                    else
+                    {
+                        query = @"SELECT TOP 1 * FROM SecuritySettings ORDER BY SecuritySettingID DESC";
+                    }
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@SiteId", _siteId);
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            txtPasswordMinLength.Text                    = reader["PasswordMinLength"].ToString();
+                            txtPasswordExpiryDays.Text                   = reader["PasswordExpiryDays"].ToString();
+                            txtMaxLoginAttempts.Text                     = reader["MaxLoginAttempts"].ToString();
+                            txtLockoutDuration.Text                      = reader["LoginAttemptLockoutMinutes"].ToString();
+                            txtSessionTimeout.Text                       = reader["SessionTimeoutMinutes"].ToString();
+                            chkPasswordRequireUppercase.Checked          = (bool)reader["PasswordRequireUppercase"];
+                            chkPasswordRequireLowercase.Checked          = (bool)reader["PasswordRequireLowercase"];
+                            chkPasswordRequireNumbers.Checked            = (bool)reader["PasswordRequireNumbers"];
+                            chkPasswordRequireSpecialCharacters.Checked  = (bool)reader["PasswordRequireSpecialCharacters"];
+                            chkEnableTwoFactor.Checked                   = (bool)reader["EnableTwoFactor"];
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error loading security settings: " + ex.Message, "error");
+            }
+        }
+
+        private void LoadNotificationSettings()
+        {
+            try
+            {
+                // Load notification system settings
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    if (!TableExists(conn, "NotificationSettings"))
+                    {
+                        // Table not yet created — skip silently
+                    }
+                    else
+                    {
+                        string query;
+                        if (ColumnExists(conn, "NotificationSettings", "SiteId"))
+                        {
+                            query = @"
+                                SELECT TOP 1 * FROM NotificationSettings
+                                WHERE SiteId = CASE
+                                        WHEN EXISTS (SELECT 1 FROM NotificationSettings WHERE SiteId=@SiteId)
+                                        THEN @SiteId ELSE 'DEFAULT' END";
+                        }
+                        else
+                        {
+                            query = @"SELECT TOP 1 * FROM NotificationSettings";
+                        }
+
+                        SqlCommand cmd = new SqlCommand(query, conn);
+                        cmd.Parameters.AddWithValue("@SiteId", _siteId);
+                        using (SqlDataReader reader = cmd.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                chkEmailNotif.Checked         = (bool)reader["EnableEmailNotifications"];
+                                chkSMSNotif.Checked           = (bool)reader["EnableSMSNotifications"];
+                                chkInAppNotif.Checked         = (bool)reader["EnableInAppNotifications"];
+                                chkPushNotif.Checked          = (bool)reader["EnablePushNotifications"];
+                                txtNotifEmailRetries.Text     = reader["EmailRetryAttempts"].ToString();
+                                txtNotifRetryInterval.Text    = reader["EmailRetryIntervalMinutes"].ToString();
+                                txtNotifQueueInterval.Text    = reader["NotificationQueueProcessingIntervalSeconds"].ToString();
+                                txtNotifRetention.Text        = reader["NotificationRetentionDays"].ToString();
+                                chkNotifDeduplication.Checked = (bool)reader["EnableNotificationDeduplication"];
+                            }
+                        }
+                    }
+                }
+
+                // Load reminders scoped to this site (fall back to DEFAULT)
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    if (TableExists(conn, "ReminderSettings"))
+                    {
+                        string query;
+                        if (ColumnExists(conn, "ReminderSettings", "SiteId"))
+                        {
+                            query = @"
+                                SELECT * FROM ReminderSettings
+                                WHERE SiteId = CASE
+                                        WHEN EXISTS (SELECT 1 FROM ReminderSettings WHERE SiteId=@SiteId)
+                                        THEN @SiteId ELSE 'DEFAULT' END
+                                ORDER BY ReminderType";
+                        }
+                        else
+                        {
+                            query = @"SELECT * FROM ReminderSettings ORDER BY ReminderType";
+                        }
+                        SqlCommand cmd = new SqlCommand(query, conn);
+                        cmd.Parameters.AddWithValue("@SiteId", _siteId);
+                        SqlDataAdapter da = new SqlDataAdapter(cmd);
+                        DataTable dt = new DataTable();
+                        da.Fill(dt);
+                        gvNotifReminders.DataSource = dt;
+                        gvNotifReminders.DataBind();
+                    }
+                }
+
+                // Load templates scoped to this site (fall back to DEFAULT)
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    if (TableExists(conn, "NotificationTemplates"))
+                    {
+                        // Build SELECT list based on columns that actually exist
+                        bool hasEventType   = ColumnExists(conn, "NotificationTemplates", "EventType");
+                        bool hasTemplateType = ColumnExists(conn, "NotificationTemplates", "TemplateType");
+                        bool hasSiteId      = ColumnExists(conn, "NotificationTemplates", "SiteId");
+
+                        string selectCols = "TemplateID, TemplateName"
+                            + (hasTemplateType ? ", TemplateType" : "")
+                            + (hasEventType    ? ", EventType"    : "");
+
+                        string query;
+                        if (hasSiteId)
+                        {
+                            query = string.Format(@"
+                                SELECT {0}
+                                FROM NotificationTemplates
+                                WHERE IsActive = 1
+                                  AND SiteId = CASE
+                                        WHEN EXISTS (SELECT 1 FROM NotificationTemplates WHERE IsActive=1 AND SiteId=@SiteId)
+                                        THEN @SiteId ELSE 'DEFAULT' END
+                                ORDER BY TemplateName", selectCols);
+                        }
+                        else
+                        {
+                            query = string.Format(@"
+                                SELECT {0}
+                                FROM NotificationTemplates
+                                WHERE IsActive = 1
+                                ORDER BY TemplateName", selectCols);
+                        }
+                        SqlCommand cmd = new SqlCommand(query, conn);
+                        cmd.Parameters.AddWithValue("@SiteId", _siteId);
+                        SqlDataAdapter da = new SqlDataAdapter(cmd);
+                        DataTable dt = new DataTable();
+                        da.Fill(dt);
+                        gvNotifTemplates.DataSource = dt;
+                        gvNotifTemplates.DataBind();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error loading notification settings: " + ex.Message, "error");
+            }
+        }
+
+        private void LoadFeatureToggles()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    if (!TableExists(conn, "FeatureToggles")) return;
+
+                    string query;
+                    if (ColumnExists(conn, "FeatureToggles", "SiteId"))
+                    {
+                        query = @"
+                            SELECT * FROM FeatureToggles
+                            WHERE SiteId = CASE
+                                    WHEN EXISTS (SELECT 1 FROM FeatureToggles WHERE SiteId=@SiteId)
+                                    THEN @SiteId ELSE 'DEFAULT' END
+                            ORDER BY FeatureName";
+                    }
+                    else
+                    {
+                        query = @"SELECT * FROM FeatureToggles ORDER BY FeatureName";
+                    }
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@SiteId", _siteId);
+                    SqlDataAdapter da = new SqlDataAdapter(cmd);
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+
+                    gvFeatures.DataSource = dt;
+                    gvFeatures.DataBind();
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error loading feature toggles: " + ex.Message, "error");
+            }
+        }
+
+        #endregion
+
+        #region Save Settings Methods
+
+        protected void btnSaveGeneral_Click(object sender, EventArgs e)
+        {
+            hfActiveTab.Value = "general";
+            _siteId = Session["SiteId"]?.ToString() ?? "DEFAULT";
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    conn.Open();
+                    SaveSetting(conn, "CompanyName",     txtCompanyName.Text);
+                    SaveSetting(conn, "CompanyEmail",    txtCompanyEmail.Text);
+                    SaveSetting(conn, "CompanyPhone",    txtCompanyPhone.Text);
+                    SaveSetting(conn, "TimeZone",        ddlTimeZone.SelectedValue);
+                    SaveSetting(conn, "Currency",        ddlCurrency.SelectedValue);
+                    SaveSetting(conn, "DateFormat",      ddlDateFormat.SelectedValue);
+                    SaveSetting(conn, "MaintenanceMode", chkMaintenanceMode.Checked.ToString().ToLower());
+                }
+
+                // Refresh the session cache so the change is immediately visible
+                SiteSettingsHelper.RefreshSessionSettings(Session, _connStr, _siteId);
+
+                ShowMessage("General settings saved for site: " + _siteId, "success");
+                LoadGeneralSettings();
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error saving general settings: " + ex.Message, "error");
+            }
+        }
+
+        protected void btnSaveAttendance_Click(object sender, EventArgs e)
+        {
+            hfActiveTab.Value = "attendance";
+            _siteId = Session["SiteId"]?.ToString() ?? "DEFAULT";
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query;
+                    if (ColumnExists(conn, "AttendanceSettings", "SiteId"))
+                    {
+                        query = @"
+                            IF EXISTS (SELECT 1 FROM AttendanceSettings WHERE SiteId = @SiteId)
+                                UPDATE AttendanceSettings SET
+                                    LateArrivalThreshold        = @LateArrivalThreshold,
+                                    EarlyDepartureThreshold     = @EarlyDepartureThreshold,
+                                    GracePeriodMinutes          = @GracePeriodMinutes,
+                                    MinimumAttendancePercentage = @MinimumAttendancePercentage,
+                                    AllowAutoCheckOut           = @AllowAutoCheckOut,
+                                    ModifiedDate                = GETDATE()
+                                WHERE SiteId = @SiteId
+                            ELSE
+                                INSERT INTO AttendanceSettings
+                                    (SiteId, LateArrivalThreshold, EarlyDepartureThreshold,
+                                     GracePeriodMinutes, MinimumAttendancePercentage, AllowAutoCheckOut, ModifiedDate)
+                                VALUES
+                                    (@SiteId, @LateArrivalThreshold, @EarlyDepartureThreshold,
+                                     @GracePeriodMinutes, @MinimumAttendancePercentage, @AllowAutoCheckOut, GETDATE())";
+                    }
+                    else
+                    {
+                        query = @"
+                            IF EXISTS (SELECT 1 FROM AttendanceSettings)
+                                UPDATE AttendanceSettings SET
+                                    LateArrivalThreshold        = @LateArrivalThreshold,
+                                    EarlyDepartureThreshold     = @EarlyDepartureThreshold,
+                                    GracePeriodMinutes          = @GracePeriodMinutes,
+                                    MinimumAttendancePercentage = @MinimumAttendancePercentage,
+                                    AllowAutoCheckOut           = @AllowAutoCheckOut,
+                                    ModifiedDate                = GETDATE()
+                            ELSE
+                                INSERT INTO AttendanceSettings
+                                    (LateArrivalThreshold, EarlyDepartureThreshold,
+                                     GracePeriodMinutes, MinimumAttendancePercentage, AllowAutoCheckOut, ModifiedDate)
+                                VALUES
+                                    (@LateArrivalThreshold, @EarlyDepartureThreshold,
+                                     @GracePeriodMinutes, @MinimumAttendancePercentage, @AllowAutoCheckOut, GETDATE())";
+                    }
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@SiteId",                      _siteId);
+                    cmd.Parameters.AddWithValue("@LateArrivalThreshold",        int.Parse(txtLateArrivalThreshold.Text));
+                    cmd.Parameters.AddWithValue("@EarlyDepartureThreshold",     int.Parse(txtEarlyDepartureThreshold.Text));
+                    cmd.Parameters.AddWithValue("@GracePeriodMinutes",          int.Parse(txtGracePeriod.Text));
+                    cmd.Parameters.AddWithValue("@MinimumAttendancePercentage", decimal.Parse(txtMinAttendance.Text));
+                    cmd.Parameters.AddWithValue("@AllowAutoCheckOut",           chkAutoCheckOut.Checked);
+
+                    if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+                    cmd.ExecuteNonQuery();
+                }
+
+                ShowMessage("Attendance settings saved for site: " + _siteId, "success");
+                LoadAttendanceSettings();
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error saving attendance settings: " + ex.Message, "error");
+            }
+        }
+
+        protected void btnSaveEmail_Click(object sender, EventArgs e)
+        {
+            hfActiveTab.Value = "email";
+            _siteId = Session["SiteId"]?.ToString() ?? "DEFAULT";
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query;
+                    if (ColumnExists(conn, "EmailConfiguration", "SiteId"))
+                    {
+                        query = @"
+                            IF EXISTS (SELECT 1 FROM EmailConfiguration WHERE IsActive = 1 AND SiteId = @SiteId)
+                                UPDATE EmailConfiguration SET
+                                    SMTPServer      = @SMTPServer,
+                                    SMTPPort        = @SMTPPort,
+                                    FromEmail       = @FromEmail,
+                                    FromDisplayName = @FromDisplayName,
+                                    Username        = @Username,
+                                    Password        = @Password,
+                                    EnableSSL       = @EnableSSL,
+                                    EnableTLS       = @EnableTLS,
+                                    ModifiedDate    = GETDATE()
+                                WHERE IsActive = 1 AND SiteId = @SiteId
+                            ELSE
+                                INSERT INTO EmailConfiguration
+                                    (SiteId, SMTPServer, SMTPPort, FromEmail, FromDisplayName, Username, Password, EnableSSL, EnableTLS, IsActive, ModifiedDate)
+                                VALUES
+                                    (@SiteId, @SMTPServer, @SMTPPort, @FromEmail, @FromDisplayName, @Username, @Password, @EnableSSL, @EnableTLS, 1, GETDATE())";
+                    }
+                    else
+                    {
+                        query = @"
+                            IF EXISTS (SELECT 1 FROM EmailConfiguration WHERE IsActive = 1)
+                                UPDATE EmailConfiguration SET
+                                    SMTPServer      = @SMTPServer,
+                                    SMTPPort        = @SMTPPort,
+                                    FromEmail       = @FromEmail,
+                                    FromDisplayName = @FromDisplayName,
+                                    Username        = @Username,
+                                    Password        = @Password,
+                                    EnableSSL       = @EnableSSL,
+                                    EnableTLS       = @EnableTLS,
+                                    ModifiedDate    = GETDATE()
+                                WHERE IsActive = 1
+                            ELSE
+                                INSERT INTO EmailConfiguration
+                                    (SMTPServer, SMTPPort, FromEmail, FromDisplayName, Username, Password, EnableSSL, EnableTLS, IsActive, ModifiedDate)
+                                VALUES
+                                    (@SMTPServer, @SMTPPort, @FromEmail, @FromDisplayName, @Username, @Password, @EnableSSL, @EnableTLS, 1, GETDATE())";
+                    }
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@SiteId",          _siteId);
+                    cmd.Parameters.AddWithValue("@SMTPServer",       txtSMTPServer.Text.Trim());
+                    cmd.Parameters.AddWithValue("@SMTPPort",         int.Parse(txtSMTPPort.Text.Trim()));
+                    cmd.Parameters.AddWithValue("@FromEmail",        txtFromEmail.Text.Trim());
+                    cmd.Parameters.AddWithValue("@FromDisplayName",  txtFromDisplayName.Text.Trim());
+                    cmd.Parameters.AddWithValue("@Username",         txtEmailUsername.Text.Trim());
+                    cmd.Parameters.AddWithValue("@Password",         txtEmailPassword.Text);
+                    cmd.Parameters.AddWithValue("@EnableSSL",        chkEnableSSL.Checked);
+                    cmd.Parameters.AddWithValue("@EnableTLS",        chkEnableTLS.Checked);
+                    if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+                    cmd.ExecuteNonQuery();
+                }
+
+                ShowMessage("Email settings saved for site: " + _siteId, "success");
+                LoadEmailSettings();
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error saving email settings: " + ex.Message, "error");
+            }
+        }
+
+        protected void btnTestEmail_Click(object sender, EventArgs e)
+        {
+            hfActiveTab.Value = "email";
+            try
+            {
+                string smtpServer = txtSMTPServer.Text.Trim();
+                string portText   = txtSMTPPort.Text.Trim();
+                string fromEmail  = txtFromEmail.Text.Trim();
+                string fromName   = txtFromDisplayName.Text.Trim();
+                string username   = txtEmailUsername.Text.Trim();
+                string password   = txtEmailPassword.Text;
+                bool   enableSsl  = chkEnableSSL.Checked;
+
+                if (string.IsNullOrEmpty(smtpServer) || string.IsNullOrEmpty(fromEmail) || string.IsNullOrEmpty(portText))
+                {
+                    ShowMessage("Please fill in SMTP Server, Port and From Email before sending a test.", "error");
+                    return;
+                }
+
+                int smtpPort = int.Parse(portText);
+                string toEmail = !string.IsNullOrEmpty(fromEmail) ? fromEmail : username;
+
+                using (var smtp = new System.Net.Mail.SmtpClient(smtpServer, smtpPort))
+                {
+                    smtp.EnableSsl   = enableSsl;
+                    smtp.Timeout     = 15000;
+
+                    if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(password))
+                        smtp.Credentials = new System.Net.NetworkCredential(username, password);
+
+                    var from = string.IsNullOrEmpty(fromName)
+                        ? new System.Net.Mail.MailAddress(fromEmail)
+                        : new System.Net.Mail.MailAddress(fromEmail, fromName);
+
+                    var msg = new System.Net.Mail.MailMessage(from, new System.Net.Mail.MailAddress(toEmail))
+                    {
+                        Subject    = "SOH Time & Attendance — SMTP Test",
+                        Body       = "This is a test email from SOH Time & Attendance System Settings.\r\n\r\nIf you received this message, your SMTP configuration is working correctly.",
+                        IsBodyHtml = false
+                    };
+
+                    smtp.Send(msg);
+                }
+
+                ShowMessage("Test email sent successfully to " + toEmail + "!", "success");
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error sending test email: " + ex.Message, "error");
+            }
+        }
+
+        protected void btnSaveSecurity_Click(object sender, EventArgs e)
+        {
+            hfActiveTab.Value = "security";
+            _siteId = Session["SiteId"]?.ToString() ?? "DEFAULT";
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query;
+                    if (ColumnExists(conn, "SecuritySettings", "SiteId"))
+                    {
+                        query = @"
+                            IF EXISTS (SELECT 1 FROM SecuritySettings WHERE SiteId = @SiteId)
+                                UPDATE SecuritySettings SET
+                                    PasswordMinLength               = @PasswordMinLength,
+                                    PasswordExpiryDays              = @PasswordExpiryDays,
+                                    MaxLoginAttempts                = @MaxLoginAttempts,
+                                    LoginAttemptLockoutMinutes      = @LoginAttemptLockoutMinutes,
+                                    SessionTimeoutMinutes           = @SessionTimeoutMinutes,
+                                    PasswordRequireUppercase        = @PasswordRequireUppercase,
+                                    PasswordRequireLowercase        = @PasswordRequireLowercase,
+                                    PasswordRequireNumbers          = @PasswordRequireNumbers,
+                                    PasswordRequireSpecialCharacters = @PasswordRequireSpecialCharacters,
+                                    EnableTwoFactor                 = @EnableTwoFactor,
+                                    ModifiedDate                    = GETDATE()
+                                WHERE SiteId = @SiteId
+                            ELSE
+                                INSERT INTO SecuritySettings
+                                    (SiteId, PasswordMinLength, PasswordExpiryDays, MaxLoginAttempts,
+                                     LoginAttemptLockoutMinutes, SessionTimeoutMinutes,
+                                     PasswordRequireUppercase, PasswordRequireLowercase,
+                                     PasswordRequireNumbers, PasswordRequireSpecialCharacters,
+                                     EnableTwoFactor, ModifiedDate)
+                                VALUES
+                                    (@SiteId, @PasswordMinLength, @PasswordExpiryDays, @MaxLoginAttempts,
+                                     @LoginAttemptLockoutMinutes, @SessionTimeoutMinutes,
+                                     @PasswordRequireUppercase, @PasswordRequireLowercase,
+                                     @PasswordRequireNumbers, @PasswordRequireSpecialCharacters,
+                                     @EnableTwoFactor, GETDATE())";
+                    }
+                    else
+                    {
+                        query = @"
+                            IF EXISTS (SELECT 1 FROM SecuritySettings)
+                                UPDATE SecuritySettings SET
+                                    PasswordMinLength               = @PasswordMinLength,
+                                    PasswordExpiryDays              = @PasswordExpiryDays,
+                                    MaxLoginAttempts                = @MaxLoginAttempts,
+                                    LoginAttemptLockoutMinutes      = @LoginAttemptLockoutMinutes,
+                                    SessionTimeoutMinutes           = @SessionTimeoutMinutes,
+                                    PasswordRequireUppercase        = @PasswordRequireUppercase,
+                                    PasswordRequireLowercase        = @PasswordRequireLowercase,
+                                    PasswordRequireNumbers          = @PasswordRequireNumbers,
+                                    PasswordRequireSpecialCharacters = @PasswordRequireSpecialCharacters,
+                                    EnableTwoFactor                 = @EnableTwoFactor,
+                                    ModifiedDate                    = GETDATE()
+                            ELSE
+                                INSERT INTO SecuritySettings
+                                    (PasswordMinLength, PasswordExpiryDays, MaxLoginAttempts,
+                                     LoginAttemptLockoutMinutes, SessionTimeoutMinutes,
+                                     PasswordRequireUppercase, PasswordRequireLowercase,
+                                     PasswordRequireNumbers, PasswordRequireSpecialCharacters,
+                                     EnableTwoFactor, ModifiedDate)
+                                VALUES
+                                    (@PasswordMinLength, @PasswordExpiryDays, @MaxLoginAttempts,
+                                     @LoginAttemptLockoutMinutes, @SessionTimeoutMinutes,
+                                     @PasswordRequireUppercase, @PasswordRequireLowercase,
+                                     @PasswordRequireNumbers, @PasswordRequireSpecialCharacters,
+                                     @EnableTwoFactor, GETDATE())";
+                    }
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@SiteId",                        _siteId);
+                    cmd.Parameters.AddWithValue("@PasswordMinLength",             int.Parse(txtPasswordMinLength.Text));
+                    cmd.Parameters.AddWithValue("@PasswordExpiryDays",            int.Parse(txtPasswordExpiryDays.Text));
+                    cmd.Parameters.AddWithValue("@MaxLoginAttempts",              int.Parse(txtMaxLoginAttempts.Text));
+                    cmd.Parameters.AddWithValue("@LoginAttemptLockoutMinutes",    int.Parse(txtLockoutDuration.Text));
+                    cmd.Parameters.AddWithValue("@SessionTimeoutMinutes",         int.Parse(txtSessionTimeout.Text));
+                    cmd.Parameters.AddWithValue("@PasswordRequireUppercase",      chkPasswordRequireUppercase.Checked);
+                    cmd.Parameters.AddWithValue("@PasswordRequireLowercase",      chkPasswordRequireLowercase.Checked);
+                    cmd.Parameters.AddWithValue("@PasswordRequireNumbers",        chkPasswordRequireNumbers.Checked);
+                    cmd.Parameters.AddWithValue("@PasswordRequireSpecialCharacters", chkPasswordRequireSpecialCharacters.Checked);
+                    cmd.Parameters.AddWithValue("@EnableTwoFactor",               chkEnableTwoFactor.Checked);
+                    if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+                    cmd.ExecuteNonQuery();
+                }
+
+                // Refresh session so the new SessionTimeout takes effect immediately
+                SiteSettingsHelper.RefreshSessionSettings(Session, _connStr, _siteId);
+
+                ShowMessage("Security settings saved for site: " + _siteId, "success");
+                LoadSecuritySettings();
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error saving security settings: " + ex.Message, "error");
+            }
+        }
+
+        protected void btnSaveNotifications_Click(object sender, EventArgs e)
+        {
+            hfActiveTab.Value = "notifications";
+            _siteId = Session["SiteId"]?.ToString() ?? "DEFAULT";
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    if (!TableExists(conn, "NotificationSettings"))
+                    {
+                        ShowMessage("NotificationSettings table does not exist yet. Please run the database migration script.", "error");
+                        return;
+                    }
+                    string query = @"
+                        IF EXISTS (SELECT 1 FROM NotificationSettings WHERE SiteId = @SiteId)
+                            UPDATE NotificationSettings SET
+                                EnableEmailNotifications                    = @EnableEmailNotifications,
+                                EnableSMSNotifications                      = @EnableSMSNotifications,
+                                EnableInAppNotifications                    = @EnableInAppNotifications,
+                                EnablePushNotifications                     = @EnablePushNotifications,
+                                EmailRetryAttempts                          = @EmailRetryAttempts,
+                                EmailRetryIntervalMinutes                   = @EmailRetryIntervalMinutes,
+                                NotificationQueueProcessingIntervalSeconds  = @NotificationQueueProcessingIntervalSeconds,
+                                NotificationRetentionDays                   = @NotificationRetentionDays,
+                                EnableNotificationDeduplication             = @EnableNotificationDeduplication,
+                                ModifiedDate                                = GETDATE()
+                            WHERE SiteId = @SiteId
+                        ELSE
+                            INSERT INTO NotificationSettings
+                                (SiteId, EnableEmailNotifications, EnableSMSNotifications,
+                                 EnableInAppNotifications, EnablePushNotifications,
+                                 EmailRetryAttempts, EmailRetryIntervalMinutes,
+                                 NotificationQueueProcessingIntervalSeconds, NotificationRetentionDays,
+                                 EnableNotificationDeduplication, ModifiedDate)
+                            VALUES
+                                (@SiteId, @EnableEmailNotifications, @EnableSMSNotifications,
+                                 @EnableInAppNotifications, @EnablePushNotifications,
+                                 @EmailRetryAttempts, @EmailRetryIntervalMinutes,
+                                 @NotificationQueueProcessingIntervalSeconds, @NotificationRetentionDays,
+                                 @EnableNotificationDeduplication, GETDATE())";
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@SiteId",                                    _siteId);
+                    cmd.Parameters.AddWithValue("@EnableEmailNotifications",                  chkEmailNotif.Checked);
+                    cmd.Parameters.AddWithValue("@EnableSMSNotifications",                    chkSMSNotif.Checked);
+                    cmd.Parameters.AddWithValue("@EnableInAppNotifications",                  chkInAppNotif.Checked);
+                    cmd.Parameters.AddWithValue("@EnablePushNotifications",                   chkPushNotif.Checked);
+                    cmd.Parameters.AddWithValue("@EmailRetryAttempts",                        int.Parse(txtNotifEmailRetries.Text));
+                    cmd.Parameters.AddWithValue("@EmailRetryIntervalMinutes",                 int.Parse(txtNotifRetryInterval.Text));
+                    cmd.Parameters.AddWithValue("@NotificationQueueProcessingIntervalSeconds",int.Parse(txtNotifQueueInterval.Text));
+                    cmd.Parameters.AddWithValue("@NotificationRetentionDays",                 int.Parse(txtNotifRetention.Text));
+                    cmd.Parameters.AddWithValue("@EnableNotificationDeduplication",           chkNotifDeduplication.Checked);
+                    conn.Open();
+                    cmd.ExecuteNonQuery();
+                }
+
+                ShowMessage("Notification settings saved for site: " + _siteId, "success");
+                LoadNotificationSettings();
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error saving notification settings: " + ex.Message, "error");
+            }
+        }
+
+        protected void gvNotifReminders_RowCommand(object sender, GridViewCommandEventArgs e)
+        {
+            // Handle reminder actions if needed
+        }
+
+        protected void gvFeatures_RowCommand(object sender, GridViewCommandEventArgs e)
+        {
+            if (e.CommandName == "Toggle")
+            {
+                hfActiveTab.Value = "features";
+                _siteId = Session["SiteId"]?.ToString() ?? "DEFAULT";
+                try
+                {
+                    int featureId = Convert.ToInt32(e.CommandArgument);
+                    using (SqlConnection conn = new SqlConnection(_connStr))
+                    {
+                        // Only toggle the row that belongs to this site
+                        string query = @"
+                            UPDATE FeatureToggles 
+                            SET IsEnabled = ~IsEnabled, ModifiedDate = GETDATE()
+                            WHERE FeatureID = @FeatureID AND SiteId = @SiteId";
+
+                        SqlCommand cmd = new SqlCommand(query, conn);
+                        cmd.Parameters.AddWithValue("@FeatureID", featureId);
+                        cmd.Parameters.AddWithValue("@SiteId", _siteId);
+                        conn.Open();
+                        int rows = cmd.ExecuteNonQuery();
+
+                        // If no site-specific row exists yet, copy the DEFAULT row and toggle it
+                        if (rows == 0)
+                        {
+                            cmd.CommandText = @"
+                                INSERT INTO FeatureToggles (SiteId, FeatureName, FeatureDescription, IsEnabled, ModifiedDate)
+                                SELECT @SiteId, FeatureName, FeatureDescription, ~IsEnabled, GETDATE()
+                                FROM FeatureToggles
+                                WHERE FeatureID = @FeatureID";
+                            cmd.ExecuteNonQuery();
+                        }
+                    }
+
+                    LoadFeatureToggles();
+                    ShowMessage("Feature toggle updated for site: " + _siteId, "success");
+                }
+                catch (Exception ex)
+                {
+                    ShowMessage("Error updating feature toggle: " + ex.Message, "error");
+                }
+            }
+        }
+
+        #endregion
+
+        #region Helper Methods
+
+        // Upsert a key/value general setting scoped to the current SiteId.
+        private void SaveSetting(SqlConnection conn, string key, string value)
+        {
+            string query;
+            if (ColumnExists(conn, "SystemSettings", "SiteId"))
+            {
+                query = @"
+                    IF EXISTS (SELECT 1 FROM SystemSettings WHERE SettingKey = @SettingKey AND SiteId = @SiteId)
+                        UPDATE SystemSettings
+                        SET SettingValue = @SettingValue, ModifiedDate = GETDATE()
+                        WHERE SettingKey = @SettingKey AND SiteId = @SiteId
+                    ELSE
+                        INSERT INTO SystemSettings (SiteId, SettingKey, SettingValue, SettingType, Category, IsActive)
+                        VALUES (@SiteId, @SettingKey, @SettingValue, 'String', 'General', 1)";
+            }
+            else
+            {
+                query = @"
+                    IF EXISTS (SELECT 1 FROM SystemSettings WHERE SettingKey = @SettingKey)
+                        UPDATE SystemSettings
+                        SET SettingValue = @SettingValue, ModifiedDate = GETDATE()
+                        WHERE SettingKey = @SettingKey
+                    ELSE
+                        INSERT INTO SystemSettings (SettingKey, SettingValue, SettingType, Category, IsActive)
+                        VALUES (@SettingKey, @SettingValue, 'String', 'General', 1)";
+            }
+
+            SqlCommand cmd = new SqlCommand(query, conn);
+            cmd.Parameters.AddWithValue("@SiteId",       _siteId);
+            cmd.Parameters.AddWithValue("@SettingKey",   key);
+            cmd.Parameters.AddWithValue("@SettingValue", value);
+            cmd.ExecuteNonQuery();
+        }
+
+        // Safely set a DropDownList value — ignores invalid values instead of throwing.
+        private static void TrySetDropDown(System.Web.UI.WebControls.DropDownList ddl, string value)
+        {
+            var item = ddl.Items.FindByValue(value);
+            if (item != null) ddl.SelectedValue = value;
+        }
+
+        private void ShowMessage(string message, string type)
+        {
+            lblMessage.Text     = message;
+            lblMessage.Visible  = true;
+            lblMessage.CssClass = type == "success" ? "success-message" : "error-message";
+
+            if (type == "success")
+                SohTnaNotify.Success(this, "Success", message);
+            else
+                SohTnaNotify.Error(this, "Error", message);
+        }
+
+        #endregion
+    }
+}

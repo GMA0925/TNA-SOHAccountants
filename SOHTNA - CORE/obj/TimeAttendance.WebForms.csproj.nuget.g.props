@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<Project ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">
+    <RestoreSuccess Condition=" '$(RestoreSuccess)' == '' ">True</RestoreSuccess>
+    <RestoreTool Condition=" '$(RestoreTool)' == '' ">NuGet</RestoreTool>
+    <ProjectAssetsFile Condition=" '$(ProjectAssetsFile)' == '' ">$(MSBuildThisFileDirectory)project.assets.json</ProjectAssetsFile>
+    <NuGetPackageRoot Condition=" '$(NuGetPackageRoot)' == '' ">$(UserProfile)\.nuget\packages\</NuGetPackageRoot>
+    <NuGetPackageFolders Condition=" '$(NuGetPackageFolders)' == '' ">C:\Users\Greg Adler\.nuget\packages\;C:\Program Files (x86)\Microsoft Visual Studio\Shared\NuGetPackages</NuGetPackageFolders>
+    <NuGetProjectStyle Condition=" '$(NuGetProjectStyle)' == '' ">PackageReference</NuGetProjectStyle>
+    <NuGetToolVersion Condition=" '$(NuGetToolVersion)' == '' ">6.14.2</NuGetToolVersion>
+  </PropertyGroup>
+  <ItemGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">
+    <SourceRoot Include="C:\Users\Greg Adler\.nuget\packages\" />
+    <SourceRoot Include="C:\Program Files (x86)\Microsoft Visual Studio\Shared\NuGetPackages\" />
+  </ItemGroup>
+  <ImportGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">
+    <Import Project="$(NuGetPackageRoot)microsoft.aspnetcore.systemwebadapters\2.3.0\build\Microsoft.AspNetCore.SystemWebAdapters.props" Condition="Exists('$(NuGetPackageRoot)microsoft.aspnetcore.systemwebadapters\2.3.0\build\Microsoft.AspNetCore.SystemWebAdapters.props')" />
+    <Import Project="$(NuGetPackageRoot)ligershark.weboptimizer.core\3.0.477\build\LigerShark.WebOptimizer.Core.props" Condition="Exists('$(NuGetPackageRoot)ligershark.weboptimizer.core\3.0.477\build\LigerShark.WebOptimizer.Core.props')" />
+    <Import Project="$(NuGetPackageRoot)antlr4.codegenerator\4.6.6\build\Antlr4.CodeGenerator.props" Condition="Exists('$(NuGetPackageRoot)antlr4.codegenerator\4.6.6\build\Antlr4.CodeGenerator.props')" />
+  </ImportGroup>
+  <PropertyGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">
+    <PkgWebGrease Condition=" '$(PkgWebGrease)' == '' ">C:\Users\Greg Adler\.nuget\packages\webgrease\1.6.0</PkgWebGrease>
+    <PkgModernizr Condition=" '$(PkgModernizr)' == '' ">C:\Users\Greg Adler\.nuget\packages\modernizr\2.8.3</PkgModernizr>
+    <PkgMicrosoft_AspNetCore_SystemWebAdapters Condition=" '$(PkgMicrosoft_AspNetCore_SystemWebAdapters)' == '' ">C:\Users\Greg Adler\.nuget\packages\microsoft.aspnetcore.systemwebadapters\2.3.0</PkgMicrosoft_AspNetCore_SystemWebAdapters>
+    <PkgjQuery Condition=" '$(PkgjQuery)' == '' ">C:\Users\Greg Adler\.nuget\packages\jquery\3.7.1</PkgjQuery>
+    <PkgAntlr4_CodeGenerator Condition=" '$(PkgAntlr4_CodeGenerator)' == '' ">C:\Users\Greg Adler\.nuget\packages\antlr4.codegenerator\4.6.6</PkgAntlr4_CodeGenerator>
+    <PkgAntlr4 Condition=" '$(PkgAntlr4)' == '' ">C:\Users\Greg Adler\.nuget\packages\antlr4\4.6.6</PkgAntlr4>
+  </PropertyGroup>
+</Project>

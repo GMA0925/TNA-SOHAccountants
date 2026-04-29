@@ -1,0 +1,1053 @@
+﻿using System;
+using System.Data;
+using System.Data.SqlClient;
+using System.Globalization;
+using System.IO;
+using System.Text;
+using System.Web;
+using System.Web.UI;
+using System.Web.UI.WebControls;
+
+namespace TimeAttendance.WebForms
+{
+    public partial class EmployeeProfile : Page
+    {
+        private string ConnStr => Properties.Settings.Default.SQLCon;
+
+        private const decimal StandardDayHours = 8m;
+
+        // ?? Session helpers ???????????????????????????????????????????????????
+        private string SessionUsername    => Session["Username"]?.ToString() ?? "";
+        private string SessionRole        => Session["Role"]?.ToString()     ?? "";
+        private string SessionSiteId      => Session["SiteId"]?.ToString()   ?? "";
+        private string SessionNameSurname => Session["NameSurname"]?.ToString() ?? "";
+
+        // ?? Page Load ?????????????????????????????????????????????????????????
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            if (Session["Username"] == null)
+            {
+                Response.Redirect("~/Login.aspx");
+                return;
+            }
+
+            if (!IsPostBack)
+            {
+                PopulateSidebar();
+                LoadAccountDetails();
+                LoadEmployeeRecord();
+                LoadAttendanceStats();
+                LoadRecentEvents();
+                LoadClockEventsWithDuration(DateTime.Today.AddDays(-30), DateTime.Today);
+                LoadFinancials();
+
+                // Default filter dates
+                txtFilterFrom.Text = DateTime.Today.AddDays(-30).ToString("yyyy-MM-dd");
+                txtFilterTo.Text   = DateTime.Today.ToString("yyyy-MM-dd");
+            }
+        }
+
+        // ?? Sidebar ???????????????????????????????????????????????????????????
+        private void PopulateSidebar()
+        {
+            string name = SessionNameSurname;
+            lblFullName.Text        = HttpUtility.HtmlEncode(name);
+            lblRoleBadge.Text       = HttpUtility.HtmlEncode(SessionRole);
+            lblSiteBadge.Text       = HttpUtility.HtmlEncode(SessionSiteId);
+            lblUsernameSidebar.Text = HttpUtility.HtmlEncode(SessionUsername);
+            lblInitials.Text        = GetInitials(name);
+        }
+
+        private static string GetInitials(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "?";
+            string[] parts = name.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 1) return parts[0].Substring(0, Math.Min(2, parts[0].Length)).ToUpper();
+            return (parts[0][0].ToString() + parts[parts.Length - 1][0].ToString()).ToUpper();
+        }
+
+        // ?? Account details ???????????????????????????????????????????????????
+        private void LoadAccountDetails()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(ConnStr))
+                {
+                    string sql = @"
+                        SELECT NameSurname, Username, Email, Role, SiteId
+                        FROM   Users
+                        WHERE  Username = @Username";
+                    using (SqlCommand cmd = new SqlCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Username", SessionUsername);
+                        conn.Open();
+                        using (SqlDataReader r = cmd.ExecuteReader())
+                        {
+                            if (r.Read())
+                            {
+                                txtFullName.Text    = SafeStr(r, "NameSurname");
+                                txtEmail.Text       = SafeStr(r, "Email");
+                                txtUsername.Text     = SafeStr(r, "Username");
+                                lblRoleDisplay.Text = SafeStr(r, "Role");
+                                lblSiteDisplay.Text = SafeStr(r, "SiteId");
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("error", "Could not load account details: " + ex.Message);
+            }
+        }
+
+        // ?? Employee record ???????????????????????????????????????????????????
+        private void LoadEmployeeRecord()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(ConnStr))
+                {
+                    string sql = @"
+                        SELECT
+                            e.EmployeeID,
+                            ISNULL(e.EmployeeCode, '')   AS EmployeeCode,
+                            e.NameSurname,
+                            ISNULL(e.Email,'')           AS Email,
+                            ISNULL(e.PhoneNumber,'')     AS PhoneNumber,
+                            ISNULL(d.DepartmentName,'')  AS DepartmentName,
+                            ISNULL(
+                              (SELECT TOP 1 s.ShiftName
+                               FROM EmployeeShifts es
+                               JOIN Shifts s ON s.ShiftID = es.ShiftID
+                               WHERE es.EmployeeID = e.EmployeeID
+                                 AND es.IsActive = 1 AND s.IsActive = 1),
+                              '-') AS ShiftName,
+                            ISNULL(e.PayType,'')         AS PayType,
+                            e.IsActive,
+                            e.CreatedDate
+                        FROM   Employees e
+                        LEFT JOIN Departments d ON d.DepartmentID = e.DepartmentID
+                        WHERE  UPPER(e.NameSurname) = UPPER(@Name)
+                          AND  e.SiteID = @SiteId";
+
+                    using (SqlCommand cmd = new SqlCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Name",   SessionNameSurname);
+                        cmd.Parameters.AddWithValue("@SiteId", SessionSiteId);
+                        conn.Open();
+                        using (SqlDataReader r = cmd.ExecuteReader())
+                        {
+                            if (r.Read())
+                            {
+                                hfEmployeeID.Value = SafeStr(r, "EmployeeID");
+
+                                string code    = SafeStr(r, "EmployeeCode");
+                                string dept    = SafeStr(r, "DepartmentName");
+                                string shift   = SafeStr(r, "ShiftName");
+                                string payType = SafeStr(r, "PayType");
+                                string mobile  = SafeStr(r, "PhoneNumber");
+                                bool isActive  = r["IsActive"] != DBNull.Value && Convert.ToBoolean(r["IsActive"]);
+                                string joined  = r["CreatedDate"] != DBNull.Value
+                                    ? Convert.ToDateTime(r["CreatedDate"]).ToString("yyyy-MM-dd")
+                                    : "-";
+
+                                // Sidebar
+                                lblEmpCode.Text    = string.IsNullOrEmpty(code) ? "-" : code;
+                                lblEmpDept.Text    = string.IsNullOrEmpty(dept) ? "-" : dept;
+                                lblEmpShift.Text   = string.IsNullOrEmpty(shift) ? "-" : shift;
+                                lblEmpPayType.Text = string.IsNullOrEmpty(payType) ? "-" : payType;
+                                lblEmpStatus.Text  = isActive
+                                    ? "<span class=\"ep-badge ep-badge-active\">Active</span>"
+                                    : "<span class=\"ep-badge ep-badge-inactive\">Inactive</span>";
+
+                                // Main panel
+                                lblInfoCode.Text    = string.IsNullOrEmpty(code) ? "-" : code;
+                                lblInfoDept.Text    = string.IsNullOrEmpty(dept) ? "-" : dept;
+                                lblInfoShift.Text   = string.IsNullOrEmpty(shift) ? "-" : shift;
+                                lblInfoPayType.Text = string.IsNullOrEmpty(payType) ? "-" : payType;
+                                lblInfoMobile.Text  = string.IsNullOrEmpty(mobile) ? "-" : mobile;
+                                lblInfoJoined.Text  = joined;
+
+                                if (string.IsNullOrWhiteSpace(txtPhone.Text))
+                                    txtPhone.Text = mobile;
+
+                                pnlEmployeeLink.Visible = true;
+                                pnlEmployeeInfo.Visible = true;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("LoadEmployeeRecord: " + ex.Message);
+            }
+        }
+
+        // ?? Attendance stats ??????????????????????????????????????????????????
+        private void LoadAttendanceStats()
+        {
+            if (string.IsNullOrWhiteSpace(SessionNameSurname)) return;
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(ConnStr))
+                {
+                    conn.Open();
+
+                    // Days present this month
+                    string sqlDays = @"
+                        SELECT COUNT(DISTINCT CAST(Timestamp AS DATE))
+                        FROM   ReaderEvents
+                        WHERE  UPPER(PersonName) = UPPER(@Name)
+                          AND  SiteId   = @SiteId
+                          AND  YEAR(Timestamp)  = YEAR(GETDATE())
+                          AND  MONTH(Timestamp) = MONTH(GETDATE())";
+
+                    using (SqlCommand cmd = new SqlCommand(sqlDays, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Name",   SessionNameSurname);
+                        cmd.Parameters.AddWithValue("@SiteId", SessionSiteId);
+                        lblStatDaysThisMonth.Text = cmd.ExecuteScalar()?.ToString() ?? "0";
+                    }
+
+                    // Total events all time
+                    string sqlTotal = @"
+                        SELECT COUNT(*)
+                        FROM   ReaderEvents
+                        WHERE  UPPER(PersonName) = UPPER(@Name)
+                          AND  SiteId = @SiteId";
+
+                    using (SqlCommand cmd = new SqlCommand(sqlTotal, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Name",   SessionNameSurname);
+                        cmd.Parameters.AddWithValue("@SiteId", SessionSiteId);
+                        lblStatTotal.Text = cmd.ExecuteScalar()?.ToString() ?? "0";
+                    }
+
+                    // Calculate actual hours from paired IN/OUT events this month
+                    decimal monthHours = CalculateHoursForPeriod(conn, SessionNameSurname, SessionSiteId,
+                        new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1), DateTime.Today);
+                    lblStatHours.Text = monthHours.ToString("0.0");
+
+                    // Average hours per day
+                    int daysPresent = 0;
+                    int.TryParse(lblStatDaysThisMonth.Text, out daysPresent);
+                    decimal avgHours = daysPresent > 0 ? monthHours / daysPresent : 0;
+                    lblStatAvgHours.Text = avgHours.ToString("0.0");
+
+                    // Late arrivals placeholder
+                    lblStatLate.Text = "\u2014";
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("LoadAttendanceStats: " + ex.Message);
+            }
+        }
+
+        // ?? Recent events (last 10 for overview tab) ??????????????????????????
+        private void LoadRecentEvents()
+        {
+            if (string.IsNullOrWhiteSpace(SessionNameSurname)) return;
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(ConnStr))
+                {
+                    string sql = @"
+                        SELECT TOP 10
+                            CAST(Timestamp AS DATE)    AS EventDate,
+                            CONVERT(VARCHAR(5), Timestamp, 108) AS EventTime,
+                            CASE WHEN Direction = 0 THEN 'IN'
+                                 WHEN Direction = 1 THEN 'OUT'
+                                 ELSE ISNULL(CAST(Direction AS VARCHAR), '-') END AS Direction,
+                            ISNULL(ReaderId, '-')      AS ReaderName
+                        FROM   ReaderEvents
+                        WHERE  UPPER(PersonName) = UPPER(@Name)
+                          AND  SiteId = @SiteId
+                        ORDER  BY Timestamp DESC";
+
+                    using (SqlCommand cmd = new SqlCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Name",   SessionNameSurname);
+                        cmd.Parameters.AddWithValue("@SiteId", SessionSiteId);
+
+                        SqlDataAdapter da = new SqlDataAdapter(cmd);
+                        DataTable dt = new DataTable();
+                        da.Fill(dt);
+
+                        if (dt.Rows.Count > 0)
+                        {
+                            gvRecentEvents.DataSource = dt;
+                            gvRecentEvents.DataBind();
+                            pnlRecentEvents.Visible = true;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("LoadRecentEvents: " + ex.Message);
+            }
+        }
+
+        // ?? Clock events with IN/OUT pairing and duration ?????????????????????
+        private void LoadClockEventsWithDuration(DateTime fromDate, DateTime toDate, bool isFilterAction = false)
+        {
+            if (string.IsNullOrWhiteSpace(SessionNameSurname)) return;
+
+            try
+            {
+                DataTable dtPaired = GetPairedClockEvents(SessionNameSurname, SessionSiteId, fromDate, toDate);
+
+                if (dtPaired.Rows.Count > 0)
+                {
+                    gvClockEvents.DataSource = dtPaired;
+                    gvClockEvents.DataBind();
+                    lblEventCount.Text = dtPaired.Rows.Count.ToString();
+                    pnlClockEvents.Visible = true;
+                }
+                else
+                {
+                    pnlClockEvents.Visible = false;
+                }
+
+                // Also load raw events
+                int rawCount = LoadRawEvents(fromDate, toDate);
+
+                if (isFilterAction)
+                {
+                    // Keep Clock Events tab active after filter postback
+                    RegisterTabScript("clockevents");
+
+                    // Show popup when no data at all for the selected range
+                    if (dtPaired.Rows.Count == 0 && rawCount == 0)
+                    {
+                        string msg = string.Format("No clock events found for the period {0} to {1}.",
+                            fromDate.ToString("yyyy-MM-dd"), toDate.ToString("yyyy-MM-dd"));
+                        RegisterPopupScript("info", "No Data Found", msg);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("LoadClockEventsWithDuration: " + ex.Message);
+                if (isFilterAction)
+                {
+                    RegisterTabScript("clockevents");
+                    RegisterPopupScript("error", "Error", "Could not load clock events: " + ex.Message);
+                }
+            }
+        }
+
+        private DataTable GetPairedClockEvents(string personName, string siteId, DateTime fromDate, DateTime toDate)
+        {
+            DataTable dtResult = new DataTable();
+            dtResult.Columns.Add("EventDate", typeof(DateTime));
+            dtResult.Columns.Add("ClockIn", typeof(string));
+            dtResult.Columns.Add("ClockOut", typeof(string));
+            dtResult.Columns.Add("Duration", typeof(string));
+            dtResult.Columns.Add("ReaderName", typeof(string));
+
+            using (SqlConnection conn = new SqlConnection(ConnStr))
+            {
+                string sql = @"
+                    SELECT
+                        CAST(Timestamp AS DATE) AS EventDate,
+                        Timestamp,
+                        Direction,
+                        ISNULL(ReaderId, '-') AS ReaderName
+                    FROM   ReaderEvents
+                    WHERE  UPPER(PersonName) = UPPER(@Name)
+                      AND  SiteId   = @SiteId
+                      AND  CAST(Timestamp AS DATE) >= @FromDate
+                      AND  CAST(Timestamp AS DATE) <= @ToDate
+                    ORDER  BY Timestamp ASC";
+
+                using (SqlCommand cmd = new SqlCommand(sql, conn))
+                {
+                    cmd.Parameters.AddWithValue("@Name",     personName);
+                    cmd.Parameters.AddWithValue("@SiteId",   siteId);
+                    cmd.Parameters.AddWithValue("@FromDate", fromDate.Date);
+                    cmd.Parameters.AddWithValue("@ToDate",   toDate.Date);
+
+                    SqlDataAdapter da = new SqlDataAdapter(cmd);
+                    DataTable dtRaw = new DataTable();
+                    da.Fill(dtRaw);
+
+                    // Pair IN/OUT events
+                    DateTime? lastInTime = null;
+                    string lastReader = "-";
+
+                    foreach (DataRow row in dtRaw.Rows)
+                    {
+                        DateTime ts = Convert.ToDateTime(row["Timestamp"]);
+                        int direction = row["Direction"] != DBNull.Value ? Convert.ToInt32(row["Direction"]) : -1;
+                        string reader = row["ReaderName"].ToString();
+
+                        if (direction == 0) // IN
+                        {
+                            lastInTime = ts;
+                            lastReader = reader;
+                        }
+                        else if (direction == 1 && lastInTime.HasValue) // OUT with matching IN
+                        {
+                            TimeSpan dur = ts - lastInTime.Value;
+                            DataRow newRow = dtResult.NewRow();
+                            newRow["EventDate"]  = ts.Date;
+                            newRow["ClockIn"]    = lastInTime.Value.ToString("HH:mm");
+                            newRow["ClockOut"]   = ts.ToString("HH:mm");
+                            newRow["Duration"]   = string.Format("{0}h {1}m", (int)dur.TotalHours, dur.Minutes);
+                            newRow["ReaderName"] = lastReader;
+                            dtResult.Rows.Add(newRow);
+
+                            lastInTime = null;
+                            lastReader = "-";
+                        }
+                        else if (direction == 1 && !lastInTime.HasValue) // OUT without matching IN
+                        {
+                            DataRow newRow = dtResult.NewRow();
+                            newRow["EventDate"]  = ts.Date;
+                            newRow["ClockIn"]    = "-";
+                            newRow["ClockOut"]   = ts.ToString("HH:mm");
+                            newRow["Duration"]   = "-";
+                            newRow["ReaderName"] = reader;
+                            dtResult.Rows.Add(newRow);
+                        }
+                    }
+
+                    // Unmatched IN at end
+                    if (lastInTime.HasValue)
+                    {
+                        DataRow newRow = dtResult.NewRow();
+                        newRow["EventDate"]  = lastInTime.Value.Date;
+                        newRow["ClockIn"]    = lastInTime.Value.ToString("HH:mm");
+                        newRow["ClockOut"]   = "-";
+                        newRow["Duration"]   = "-";
+                        newRow["ReaderName"] = lastReader;
+                        dtResult.Rows.Add(newRow);
+                    }
+                }
+            }
+
+            // Sort newest first
+            dtResult.DefaultView.Sort = "EventDate DESC";
+            return dtResult.DefaultView.ToTable();
+        }
+
+        private int LoadRawEvents(DateTime fromDate, DateTime toDate)
+        {
+            int rowCount = 0;
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(ConnStr))
+                {
+                    string sql = @"
+                        SELECT
+                            CAST(Timestamp AS DATE)    AS EventDate,
+                            CONVERT(VARCHAR(5), Timestamp, 108) AS EventTime,
+                            CASE WHEN Direction = 0 THEN 'IN'
+                                 WHEN Direction = 1 THEN 'OUT'
+                                 ELSE ISNULL(CAST(Direction AS VARCHAR), '-') END AS Direction,
+                            ISNULL(ReaderId, '-')      AS ReaderName
+                        FROM   ReaderEvents
+                        WHERE  UPPER(PersonName) = UPPER(@Name)
+                          AND  SiteId   = @SiteId
+                          AND  CAST(Timestamp AS DATE) >= @FromDate
+                          AND  CAST(Timestamp AS DATE) <= @ToDate
+                        ORDER  BY Timestamp DESC";
+
+                    using (SqlCommand cmd = new SqlCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Name",     SessionNameSurname);
+                        cmd.Parameters.AddWithValue("@SiteId",   SessionSiteId);
+                        cmd.Parameters.AddWithValue("@FromDate", fromDate.Date);
+                        cmd.Parameters.AddWithValue("@ToDate",   toDate.Date);
+
+                        SqlDataAdapter da = new SqlDataAdapter(cmd);
+                        DataTable dt = new DataTable();
+                        da.Fill(dt);
+                        rowCount = dt.Rows.Count;
+
+                        if (dt.Rows.Count > 0)
+                        {
+                            gvAllEvents.DataSource = dt;
+                            gvAllEvents.DataBind();
+                            pnlAllEvents.Visible = true;
+                        }
+                        else
+                        {
+                            pnlAllEvents.Visible = false;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("LoadRawEvents: " + ex.Message);
+            }
+            return rowCount;
+        }
+
+        // ?? Financials ????????????????????????????????????????????????????????
+        private void LoadFinancials()
+        {
+            if (string.IsNullOrWhiteSpace(SessionNameSurname)) return;
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(ConnStr))
+                {
+                    conn.Open();
+
+                    DateTime monthStart = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+                    DateTime monthEnd   = DateTime.Today;
+
+                    // Current month summary
+                    decimal totalHoursMonth = CalculateHoursForPeriod(conn, SessionNameSurname, SessionSiteId, monthStart, monthEnd);
+
+                    // Days worked
+                    string sqlDays = @"
+                        SELECT COUNT(DISTINCT CAST(Timestamp AS DATE))
+                        FROM   ReaderEvents
+                        WHERE  UPPER(PersonName) = UPPER(@Name)
+                          AND  SiteId   = @SiteId
+                          AND  CAST(Timestamp AS DATE) >= @From
+                          AND  CAST(Timestamp AS DATE) <= @To";
+
+                    int daysWorked = 0;
+                    using (SqlCommand cmd = new SqlCommand(sqlDays, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Name",   SessionNameSurname);
+                        cmd.Parameters.AddWithValue("@SiteId", SessionSiteId);
+                        cmd.Parameters.AddWithValue("@From",   monthStart);
+                        cmd.Parameters.AddWithValue("@To",     monthEnd);
+                        daysWorked = Convert.ToInt32(cmd.ExecuteScalar() ?? 0);
+                    }
+
+                    // Overtime = hours beyond standard per day
+                    decimal expectedHours = daysWorked * StandardDayHours;
+                    decimal overtime = totalHoursMonth > expectedHours ? totalHoursMonth - expectedHours : 0;
+                    decimal avgDaily = daysWorked > 0 ? totalHoursMonth / daysWorked : 0;
+
+                    lblFinTotalHours.Text    = totalHoursMonth.ToString("0.0");
+                    lblFinDaysWorked.Text    = daysWorked.ToString();
+                    lblFinOvertimeHours.Text = overtime.ToString("0.0");
+                    lblFinAvgDaily.Text      = avgDaily.ToString("0.0");
+
+                    lblFinMonth.Text = DateTime.Today.ToString("MMMM yyyy");
+
+                    // Monthly hours breakdown (last 6 months)
+                    LoadMonthlyBreakdown(conn);
+
+                    // Daily hours this month
+                    LoadDailyHours(conn, monthStart, monthEnd);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("LoadFinancials: " + ex.Message);
+            }
+        }
+
+        private void LoadMonthlyBreakdown(SqlConnection conn)
+        {
+            StringBuilder sb = new StringBuilder();
+            decimal maxHours = 1;
+
+            var monthData = new System.Collections.Generic.List<Tuple<string, decimal>>();
+
+            for (int i = 5; i >= 0; i--)
+            {
+                DateTime m = DateTime.Today.AddMonths(-i);
+                DateTime mStart = new DateTime(m.Year, m.Month, 1);
+                DateTime mEnd   = mStart.AddMonths(1).AddDays(-1);
+                if (mEnd > DateTime.Today) mEnd = DateTime.Today;
+
+                decimal hours = CalculateHoursForPeriod(conn, SessionNameSurname, SessionSiteId, mStart, mEnd);
+                string label = mStart.ToString("MMM yyyy");
+                monthData.Add(Tuple.Create(label, hours));
+                if (hours > maxHours) maxHours = hours;
+            }
+
+            bool hasData = false;
+            string[] barClasses = { "blue", "green", "purple", "blue", "green", "purple" };
+            int idx = 0;
+
+            foreach (var item in monthData)
+            {
+                if (item.Item2 > 0) hasData = true;
+                int pct = maxHours > 0 ? (int)(item.Item2 / maxHours * 100) : 0;
+                if (pct < 2 && item.Item2 > 0) pct = 2;
+
+                sb.AppendFormat(
+                    "<div class=\"ep-month-bar\">" +
+                    "  <div class=\"ep-month-name\">{0}</div>" +
+                    "  <div class=\"ep-month-progress\">" +
+                    "    <div class=\"ep-month-fill {1}\" style=\"width:{2}%\">{3}</div>" +
+                    "  </div>" +
+                    "  <div class=\"ep-month-hours\">{4}h</div>" +
+                    "</div>",
+                    HttpUtility.HtmlEncode(item.Item1),
+                    barClasses[idx % barClasses.Length],
+                    pct,
+                    item.Item2 > 0 ? item.Item2.ToString("0.0") : "",
+                    item.Item2.ToString("0.0"));
+
+                idx++;
+            }
+
+            litMonthlyBars.Text = sb.ToString();
+            pnlNoFinancialData.Visible = !hasData;
+            pnlMonthlyBreakdown.Visible = hasData;
+        }
+
+        private void LoadDailyHours(SqlConnection conn, DateTime monthStart, DateTime monthEnd)
+        {
+            DataTable dtDaily = new DataTable();
+            dtDaily.Columns.Add("WorkDate", typeof(DateTime));
+            dtDaily.Columns.Add("DayName", typeof(string));
+            dtDaily.Columns.Add("FirstIn", typeof(string));
+            dtDaily.Columns.Add("LastOut", typeof(string));
+            dtDaily.Columns.Add("TotalHours", typeof(decimal));
+            dtDaily.Columns.Add("OvertimeHours", typeof(decimal));
+
+            string sql = @"
+                SELECT
+                    CAST(Timestamp AS DATE) AS EventDate,
+                    Timestamp,
+                    Direction
+                FROM   ReaderEvents
+                WHERE  UPPER(PersonName) = UPPER(@Name)
+                  AND  SiteId   = @SiteId
+                  AND  CAST(Timestamp AS DATE) >= @From
+                  AND  CAST(Timestamp AS DATE) <= @To
+                ORDER  BY Timestamp ASC";
+
+            DataTable dtRaw = new DataTable();
+            using (SqlCommand cmd = new SqlCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@Name",   SessionNameSurname);
+                cmd.Parameters.AddWithValue("@SiteId", SessionSiteId);
+                cmd.Parameters.AddWithValue("@From",   monthStart);
+                cmd.Parameters.AddWithValue("@To",     monthEnd);
+
+                SqlDataAdapter da = new SqlDataAdapter(cmd);
+                da.Fill(dtRaw);
+            }
+
+            // Group by date
+            var dayGroups = new System.Collections.Generic.Dictionary<DateTime, System.Collections.Generic.List<DataRow>>();
+            foreach (DataRow row in dtRaw.Rows)
+            {
+                DateTime dt = Convert.ToDateTime(row["EventDate"]);
+                if (!dayGroups.ContainsKey(dt))
+                    dayGroups[dt] = new System.Collections.Generic.List<DataRow>();
+                dayGroups[dt].Add(row);
+            }
+
+            foreach (var kvp in dayGroups)
+            {
+                DateTime date = kvp.Key;
+                var events = kvp.Value;
+
+                string firstIn = "-";
+                string lastOut = "-";
+                decimal totalHrs = 0;
+
+                DateTime? currentIn = null;
+
+                foreach (DataRow ev in events)
+                {
+                    DateTime ts = Convert.ToDateTime(ev["Timestamp"]);
+                    int dir = ev["Direction"] != DBNull.Value ? Convert.ToInt32(ev["Direction"]) : -1;
+
+                    if (dir == 0) // IN
+                    {
+                        if (firstIn == "-") firstIn = ts.ToString("HH:mm");
+                        currentIn = ts;
+                    }
+                    else if (dir == 1) // OUT
+                    {
+                        lastOut = ts.ToString("HH:mm");
+                        if (currentIn.HasValue)
+                        {
+                            totalHrs += (decimal)(ts - currentIn.Value).TotalHours;
+                            currentIn = null;
+                        }
+                    }
+                }
+
+                decimal ot = totalHrs > StandardDayHours ? totalHrs - StandardDayHours : 0;
+
+                DataRow newRow = dtDaily.NewRow();
+                newRow["WorkDate"]      = date;
+                newRow["DayName"]       = date.ToString("ddd");
+                newRow["FirstIn"]       = firstIn;
+                newRow["LastOut"]       = lastOut;
+                newRow["TotalHours"]    = Math.Round(totalHrs, 1);
+                newRow["OvertimeHours"] = Math.Round(ot, 1);
+                dtDaily.Rows.Add(newRow);
+            }
+
+            // Sort descending
+            dtDaily.DefaultView.Sort = "WorkDate DESC";
+            DataTable dtSorted = dtDaily.DefaultView.ToTable();
+
+            if (dtSorted.Rows.Count > 0)
+            {
+                gvDailyHours.DataSource = dtSorted;
+                gvDailyHours.DataBind();
+                pnlDailyHours.Visible = true;
+            }
+        }
+
+        /// <summary>
+        /// Calculates actual worked hours by pairing IN/OUT events.
+        /// </summary>
+        private decimal CalculateHoursForPeriod(SqlConnection conn, string personName, string siteId,
+            DateTime fromDate, DateTime toDate)
+        {
+            string sql = @"
+                SELECT Timestamp, Direction
+                FROM   ReaderEvents
+                WHERE  UPPER(PersonName) = UPPER(@Name)
+                  AND  SiteId   = @SiteId
+                  AND  CAST(Timestamp AS DATE) >= @From
+                  AND  CAST(Timestamp AS DATE) <= @To
+                ORDER  BY Timestamp ASC";
+
+            decimal totalHours = 0;
+            bool needsOpen = conn.State != ConnectionState.Open;
+
+            using (SqlCommand cmd = new SqlCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@Name",   personName);
+                cmd.Parameters.AddWithValue("@SiteId", siteId);
+                cmd.Parameters.AddWithValue("@From",   fromDate.Date);
+                cmd.Parameters.AddWithValue("@To",     toDate.Date);
+
+                if (needsOpen) conn.Open();
+
+                DateTime? lastIn = null;
+
+                using (SqlDataReader r = cmd.ExecuteReader())
+                {
+                    while (r.Read())
+                    {
+                        DateTime ts = Convert.ToDateTime(r["Timestamp"]);
+                        int dir = r["Direction"] != DBNull.Value ? Convert.ToInt32(r["Direction"]) : -1;
+
+                        if (dir == 0) // IN
+                        {
+                            lastIn = ts;
+                        }
+                        else if (dir == 1 && lastIn.HasValue) // OUT
+                        {
+                            totalHours += (decimal)(ts - lastIn.Value).TotalHours;
+                            lastIn = null;
+                        }
+                    }
+                }
+            }
+
+            return Math.Round(totalHours, 1);
+        }
+
+        // ?? Filter button click ???????????????????????????????????????????????
+        protected void btnFilterEvents_Click(object sender, EventArgs e)
+        {
+            RegisterTabScript("clockevents");
+
+            DateTime from, to;
+            if (!DateTime.TryParse(txtFilterFrom.Text, out from))
+                from = DateTime.Today.AddDays(-30);
+            if (!DateTime.TryParse(txtFilterTo.Text, out to))
+                to = DateTime.Today;
+
+            if (from > to)
+            {
+                RegisterPopupScript("error", "Invalid Date Range", "From date must be before To date.");
+                return;
+            }
+
+            LoadClockEventsWithDuration(from, to, isFilterAction: true);
+        }
+
+        // ?? GridView paging ???????????????????????????????????????????????????
+        protected void gvClockEvents_PageIndexChanging(object sender, GridViewPageEventArgs e)
+        {
+            DateTime from, to;
+            DateTime.TryParse(txtFilterFrom.Text, out from);
+            DateTime.TryParse(txtFilterTo.Text, out to);
+            if (from == DateTime.MinValue) from = DateTime.Today.AddDays(-30);
+            if (to == DateTime.MinValue) to = DateTime.Today;
+
+            DataTable dt = GetPairedClockEvents(SessionNameSurname, SessionSiteId, from, to);
+            gvClockEvents.PageIndex = e.NewPageIndex;
+            gvClockEvents.DataSource = dt;
+            gvClockEvents.DataBind();
+        }
+
+        protected void gvAllEvents_PageIndexChanging(object sender, GridViewPageEventArgs e)
+        {
+            DateTime from, to;
+            DateTime.TryParse(txtFilterFrom.Text, out from);
+            DateTime.TryParse(txtFilterTo.Text, out to);
+            if (from == DateTime.MinValue) from = DateTime.Today.AddDays(-30);
+            if (to == DateTime.MinValue) to = DateTime.Today;
+
+            gvAllEvents.PageIndex = e.NewPageIndex;
+            LoadRawEvents(from, to);
+        }
+
+        // ?? Export CSV ????????????????????????????????????????????????????????
+        protected void btnExportMyEvents_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(SessionNameSurname)) return;
+
+            try
+            {
+                DataTable dtPaired = GetPairedClockEvents(SessionNameSurname, SessionSiteId,
+                    DateTime.Today.AddDays(-90), DateTime.Today);
+
+                StringBuilder sb = new StringBuilder();
+                sb.AppendLine("Date,Clock In,Clock Out,Duration,Reader");
+
+                foreach (DataRow row in dtPaired.Rows)
+                {
+                    sb.AppendFormat("{0},{1},{2},{3},{4}\r\n",
+                        row["EventDate"] != DBNull.Value ? Convert.ToDateTime(row["EventDate"]).ToString("yyyy-MM-dd") : "",
+                        CsvEscape(row["ClockIn"].ToString()),
+                        CsvEscape(row["ClockOut"].ToString()),
+                        CsvEscape(row["Duration"].ToString()),
+                        CsvEscape(row["ReaderName"].ToString()));
+                }
+
+                Response.Clear();
+                Response.ContentType = "text/csv";
+                Response.AddHeader("Content-Disposition",
+                    string.Format("attachment; filename=MyClockEvents_{0}.csv", DateTime.Today.ToString("yyyyMMdd")));
+                Response.Write(sb.ToString());
+                Response.End();
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("error", "Could not export events: " + ex.Message);
+            }
+        }
+
+        // ?? Refresh data ??????????????????????????????????????????????????????
+        protected void btnRefreshData_Click(object sender, EventArgs e)
+        {
+            PopulateSidebar();
+            LoadAccountDetails();
+            LoadEmployeeRecord();
+            LoadAttendanceStats();
+            LoadRecentEvents();
+            LoadClockEventsWithDuration(DateTime.Today.AddDays(-30), DateTime.Today);
+            LoadFinancials();
+            ShowMessage("success", "Data refreshed successfully.");
+        }
+
+        // ?? Save account details ??????????????????????????????????????????????
+        protected void btnSaveProfile_Click(object sender, EventArgs e)
+        {
+            string newName  = txtFullName.Text.Trim();
+            string newEmail = txtEmail.Text.Trim();
+            string newPhone = txtPhone.Text.Trim();
+
+            if (string.IsNullOrWhiteSpace(newName))
+            {
+                ShowMessage("error", "Full name cannot be empty.");
+                return;
+            }
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(ConnStr))
+                {
+                    string sql = @"
+                        UPDATE Users
+                        SET    NameSurname = @Name,
+                               Email       = @Email
+                        WHERE  Username = @Username";
+
+                    using (SqlCommand cmd = new SqlCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Name",     newName);
+                        cmd.Parameters.AddWithValue("@Email",    string.IsNullOrEmpty(newEmail) ? (object)DBNull.Value : newEmail);
+                        cmd.Parameters.AddWithValue("@Username", SessionUsername);
+                        conn.Open();
+                        cmd.ExecuteNonQuery();
+                    }
+
+                    if (!string.IsNullOrEmpty(hfEmployeeID.Value))
+                    {
+                        string sqlEmp = @"
+                            UPDATE Employees
+                            SET    Email       = @Email,
+                                   PhoneNumber = @Phone,
+                                   ModifiedDate = GETDATE()
+                            WHERE  EmployeeID = @EmpID";
+
+                        using (SqlCommand cmd = new SqlCommand(sqlEmp, conn))
+                        {
+                            cmd.Parameters.AddWithValue("@Email",  string.IsNullOrEmpty(newEmail) ? (object)DBNull.Value : newEmail);
+                            cmd.Parameters.AddWithValue("@Phone",  string.IsNullOrEmpty(newPhone) ? (object)DBNull.Value : newPhone);
+                            cmd.Parameters.AddWithValue("@EmpID",  hfEmployeeID.Value);
+                            cmd.ExecuteNonQuery();
+                        }
+                    }
+                }
+
+                Session["NameSurname"] = newName;
+                PopulateSidebar();
+                ShowMessage("success", "Profile updated successfully.");
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("error", "Could not save profile: " + ex.Message);
+            }
+        }
+
+        // ?? Reset form ????????????????????????????????????????????????????????
+        protected void btnCancelEdit_Click(object sender, EventArgs e)
+        {
+            lblMessage.Visible = false;
+            lblMessage.Text    = "";
+            LoadAccountDetails();
+            ShowMessage("info", "Changes discarded.");
+        }
+
+        // ?? Change password ???????????????????????????????????????????????????
+        protected void btnChangePassword_Click(object sender, EventArgs e)
+        {
+            string current = txtCurrentPassword.Text;
+            string newPwd  = txtNewPassword.Text;
+            string confirm = txtConfirmPassword.Text;
+
+            if (string.IsNullOrWhiteSpace(current) || string.IsNullOrWhiteSpace(newPwd))
+            {
+                ShowMessage("error", "Please fill in all password fields.");
+                return;
+            }
+
+            if (newPwd != confirm)
+            {
+                ShowMessage("error", "New password and confirmation do not match.");
+                return;
+            }
+
+            if (newPwd.Length < 6)
+            {
+                ShowMessage("error", "New password must be at least 6 characters.");
+                return;
+            }
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(ConnStr))
+                {
+                    string sqlVerify = @"
+                        SELECT COUNT(1) FROM Users
+                        WHERE  Username = @Username AND PasswordHash = @OldPwd";
+
+                    using (SqlCommand cmd = new SqlCommand(sqlVerify, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Username", SessionUsername);
+                        cmd.Parameters.AddWithValue("@OldPwd",   current);
+                        conn.Open();
+                        int count = (int)cmd.ExecuteScalar();
+                        if (count == 0)
+                        {
+                            ShowMessage("error", "Current password is incorrect.");
+                            return;
+                        }
+                    }
+
+                    string sqlUpdate = @"
+                        UPDATE Users
+                        SET    PasswordHash = @NewPwd
+                        WHERE  Username = @Username";
+
+                    using (SqlCommand cmd = new SqlCommand(sqlUpdate, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@NewPwd",   newPwd);
+                        cmd.Parameters.AddWithValue("@Username", SessionUsername);
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                txtCurrentPassword.Text = "";
+                txtNewPassword.Text     = "";
+                txtConfirmPassword.Text = "";
+                ShowMessage("success", "Password changed successfully.");
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("error", "Could not change password: " + ex.Message);
+            }
+        }
+
+        // ?? Helpers ???????????????????????????????????????????????????????????
+        private static string SafeStr(SqlDataReader r, string col)
+        {
+            try { return r[col] == DBNull.Value ? "" : r[col].ToString(); }
+            catch { return ""; }
+        }
+
+        private static string CsvEscape(string val)
+        {
+            if (string.IsNullOrEmpty(val)) return "";
+            if (val.Contains(",") || val.Contains("\"") || val.Contains("\n"))
+                return "\"" + val.Replace("\"", "\"\"") + "\"";
+            return val;
+        }
+
+        private void ShowMessage(string type, string text)
+        {
+            string css = type == "success" ? "ep-alert ep-alert-success"
+                       : type == "error"   ? "ep-alert ep-alert-error"
+                                           : "ep-alert ep-alert-info";
+
+            string icon = type == "success" ? "fas fa-check-circle"
+                        : type == "error"   ? "fas fa-exclamation-circle"
+                                            : "fas fa-info-circle";
+
+            lblMessage.Text    = string.Format("<div class=\"{0}\"><i class=\"{1}\"></i> {2}</div>",
+                css, icon, HttpUtility.HtmlEncode(text));
+            lblMessage.Visible = true;
+        }
+
+        /// <summary>
+        /// Registers a startup script that shows the styled popup modal with a title and message.
+        /// </summary>
+        private void RegisterPopupScript(string type, string title, string message)
+        {
+            string safeTitle = HttpUtility.JavaScriptStringEncode(title);
+            string safeMsg   = HttpUtility.JavaScriptStringEncode(message);
+            string safeType  = HttpUtility.JavaScriptStringEncode(type);
+            string script = string.Format(
+                "document.addEventListener('DOMContentLoaded', function() {{ epShowPopup('{0}', '{1}', '{2}'); }});" +
+                "if (document.readyState !== 'loading') {{ epShowPopup('{0}', '{1}', '{2}'); }}",
+                safeType, safeTitle, safeMsg);
+            ScriptManager.RegisterStartupScript(this.Page, this.Page.GetType(), "epPopup", script, true);
+        }
+
+        /// <summary>
+        /// Registers a startup script that switches to the given tab after postback.
+        /// </summary>
+        private void RegisterTabScript(string tabName)
+        {
+            string safeTab = HttpUtility.JavaScriptStringEncode(tabName);
+            string script = string.Format(
+                "document.addEventListener('DOMContentLoaded', function() {{ epRestoreTab('{0}'); }});" +
+                "if (document.readyState !== 'loading') {{ epRestoreTab('{0}'); }}",
+                safeTab);
+            ScriptManager.RegisterStartupScript(this.Page, this.Page.GetType(), "epTab", script, true);
+        }
+    }
+}

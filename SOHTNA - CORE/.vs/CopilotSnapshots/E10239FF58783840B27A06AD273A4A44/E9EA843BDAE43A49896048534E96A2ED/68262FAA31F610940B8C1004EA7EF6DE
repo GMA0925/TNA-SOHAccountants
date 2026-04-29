@@ -1,0 +1,153 @@
+﻿using System;
+using System.Data;
+using System.Data.SqlClient;
+using System.Web.UI;
+using System.Web.UI.HtmlControls;
+using System.Web.UI.WebControls;
+
+namespace TimeAttendance.WebForms
+{
+    public partial class ComplianceStatus : System.Web.UI.Page
+    {
+        private string _connStr = Properties.Settings.Default.SQLCon;
+
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            if (Session["Username"] == null || Session["Role"]?.ToString() != "Admin")
+            {
+                Response.Redirect("Login.aspx");
+                return;
+            }
+
+            if (!IsPostBack)
+            {
+                LoadComplianceData();
+                LoadComplianceChecklists();
+            }
+        }
+
+        private void LoadComplianceData()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = @"
+                        SELECT 
+                            COUNT(*) as TotalItems,
+                            SUM(CASE WHEN Status = 'Completed' THEN 1 ELSE 0 END) as CompletedItems,
+                            SUM(CASE WHEN Status = 'Pending' AND DueDate < GETDATE() THEN 1 ELSE 0 END) as OverdueItems,
+                            SUM(CASE WHEN Status = 'Pending' AND DueDate BETWEEN GETDATE() AND DATEADD(DAY, 7, GETDATE()) THEN 1 ELSE 0 END) as AtRiskItems
+                        FROM ComplianceChecklist";
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    conn.Open();
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            int totalItems = reader["TotalItems"] != DBNull.Value ? Convert.ToInt32(reader["TotalItems"]) : 0;
+                            int completedItems = reader["CompletedItems"] != DBNull.Value ? Convert.ToInt32(reader["CompletedItems"]) : 0;
+                            int overdueItems = reader["OverdueItems"] != DBNull.Value ? Convert.ToInt32(reader["OverdueItems"]) : 0;
+                            int atRiskItems = reader["AtRiskItems"] != DBNull.Value ? Convert.ToInt32(reader["AtRiskItems"]) : 0;
+
+                            if (totalItems > 0)
+                            {
+                                int complianceScore = (completedItems * 100) / totalItems;
+                                lblComplianceScore.Text = $"{complianceScore}%";
+                                lblTasksCompleted.Text = $"{completedItems}/{totalItems}";
+                            }
+
+                            lblOverdueItems.Text = overdueItems.ToString();
+                            lblAtRisk.Text = atRiskItems.ToString();
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading compliance data: {ex.Message}");
+            }
+        }
+
+        private void LoadComplianceChecklists()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = @"
+                        SELECT c.ChecklistID, c.ChecklistName, c.Category, c.Status, c.DueDate, e.NameSurname as AssignedToName
+                        FROM ComplianceChecklist c
+                        LEFT JOIN Employees e ON c.AssignedTo = e.EmployeeID
+                        ORDER BY c.Category, c.DueDate";
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    SqlDataAdapter da = new SqlDataAdapter(cmd);
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+
+                    gvCompliance.DataSource = dt;
+                    gvCompliance.DataBind();
+
+                    // Populate category-specific placeholders
+                    LoadCategoryItems(phDataProtection, "Data Protection", dt);
+                    LoadCategoryItems(phLaborLaw, "Labor Law", dt);
+                    LoadCategoryItems(phTaxCompliance, "Tax Compliance", dt);
+                    LoadCategoryItems(phPrivacy, "Privacy", dt);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading checklists: {ex.Message}");
+            }
+        }
+
+        private void LoadCategoryItems(PlaceHolder placeholder, string category, DataTable dt)
+        {
+            foreach (DataRow row in dt.Rows)
+            {
+                if (row["Category"].ToString() == category)
+                {
+                    HtmlGenericControl div = new HtmlGenericControl("div");
+                    div.Attributes["class"] = "checklist-item";
+
+                    HtmlGenericControl infoDiv = new HtmlGenericControl("div");
+                    infoDiv.Attributes["class"] = "checklist-info";
+
+                    DateTime dueDate = Convert.ToDateTime(row["DueDate"]);
+                    
+                    infoDiv.Controls.Add(new LiteralControl($"<div class='checklist-name'>{row["ChecklistName"]}</div>"));
+                    infoDiv.Controls.Add(new LiteralControl($"<div class='checklist-meta'>Due: {dueDate:yyyy-MM-dd}</div>"));
+
+                    string status = row["Status"].ToString();
+                    HtmlGenericControl statusDiv = new HtmlGenericControl("div");
+                    statusDiv.Attributes["class"] = $"checklist-status status-{status.ToLower().Replace(" ", "")}";
+                    statusDiv.InnerText = status;
+
+                    div.Controls.Add(infoDiv);
+                    div.Controls.Add(statusDiv);
+
+                    placeholder.Controls.Add(div);
+                }
+            }
+        }
+
+        #region Navigation
+
+        protected void btnAuditTrail_Click(object sender, EventArgs e) => Response.Redirect("AuditTrail.aspx");
+        protected void btnComplianceStatus_Click(object sender, EventArgs e) => Response.Redirect("ComplianceStatus.aspx");
+        protected void btnDataAccess_Click(object sender, EventArgs e) => Response.Redirect("DataAccessLog.aspx");
+        protected void btnViolations_Click(object sender, EventArgs e) => Response.Redirect("ComplianceViolations.aspx");
+        protected void btnReports_Click(object sender, EventArgs e) => Response.Redirect("ComplianceReports.aspx");
+
+        protected void btnLogout_Click(object sender, EventArgs e)
+        {
+            Session.Clear();
+            Session.Abandon();
+            Response.Redirect("Login.aspx");
+        }
+
+        #endregion
+    }
+}

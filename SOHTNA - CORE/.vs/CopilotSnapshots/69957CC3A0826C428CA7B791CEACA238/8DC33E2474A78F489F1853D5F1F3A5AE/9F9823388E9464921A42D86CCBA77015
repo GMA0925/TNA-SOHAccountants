@@ -1,0 +1,306 @@
+﻿/* =============================================================
+   SOHTNA — System-wide Modal & Toast Notification Engine
+   Loaded via: Navigation.ascx (available on every page)
+   =============================================================
+
+   PUBLIC API
+   ----------
+   SOHTNA.modal.open(options)
+     options = {
+       title    : string  – header text (may contain HTML / icon emoji)
+       body     : string  – HTML content for the modal body
+       size     : 'sm' | 'md' | 'lg'  (default: 'md')
+       onClose  : fn      – called when the modal closes
+     }
+
+   SOHTNA.modal.close()
+
+   SOHTNA.toast.show(options)
+     options = {
+       type     : 'success' | 'error' | 'warning' | 'info'  (default: 'info')
+       title    : string  – bold headline (optional)
+       message  : string  – body text
+       duration : number  – ms before auto-dismiss (default: 4000, 0 = sticky)
+     }
+
+   Convenience shortcuts:
+     SOHTNA.toast.success(message, title?)
+     SOHTNA.toast.error(message, title?)
+     SOHTNA.toast.warning(message, title?)
+     SOHTNA.toast.info(message, title?)
+
+   SERVER-SIDE HELPER (C# / VB.NET)
+   ----------------------------------
+   Call from any Page / UserControl:
+     SohTnaNotify.Success(this, "Saved!", "Employee updated successfully.");
+     SohTnaNotify.Error(this, "Failed", "Could not save changes.");
+     SohTnaNotify.Warning(this, "Warning", "Duplicate entry detected.");
+     SohTnaNotify.Info(this, "Info", "Record loaded.");
+
+   ============================================================= */
+
+(function (global) {
+    'use strict';
+
+    /* ?? Icons per type ??????????????????????????????????? */
+    var ICONS = {
+        success : '<i class="fas fa-check-circle"></i>',
+        error   : '<i class="fas fa-times-circle"></i>',
+        warning : '<i class="fas fa-exclamation-triangle"></i>',
+        info    : '<i class="fas fa-info-circle"></i>'
+    };
+
+    var TITLES = {
+        success : 'Success',
+        error   : 'Error',
+        warning : 'Warning',
+        info    : 'Info'
+    };
+
+    /* ?? Size map ?????????????????????????????????????????? */
+    var SIZE_MAP = { sm: '480px', md: '760px', lg: '1000px' };
+
+    /* =========================================================
+       MODAL
+    ========================================================= */
+    var modal = (function () {
+        var overlay, win, _onClose;
+
+        function _ensure() {
+            if (overlay) return;
+            overlay = document.getElementById('sohtna-modal-overlay');
+            win     = document.getElementById('sohtna-modal-win');
+        }
+
+        function open(opts) {
+            _ensure();
+            opts = opts || {};
+            _onClose = opts.onClose || null;
+
+            /* size */
+            win.style.maxWidth = SIZE_MAP[opts.size] || SIZE_MAP.md;
+
+            /* title */
+            var hdr = win.querySelector('.sohtna-modal-title');
+            if (hdr) hdr.innerHTML = opts.title || '';
+
+            /* body */
+            var body = win.querySelector('.sohtna-modal-body');
+            if (body) body.innerHTML = opts.body || '';
+
+            overlay.classList.add('active');
+            document.body.style.overflow = 'hidden';
+
+            /* focus first focusable */
+            setTimeout(function () {
+                var first = win.querySelector('input:not([type=hidden]), select, textarea, button:not(.sohtna-modal-close)');
+                if (first) first.focus();
+            }, 60);
+        }
+
+        function close() {
+            _ensure();
+            overlay.classList.remove('active');
+            document.body.style.overflow = '';
+            if (typeof _onClose === 'function') _onClose();
+            _onClose = null;
+        }
+
+        function _init() {
+            _ensure();
+            if (!overlay) return;
+
+            /* close on ? button */
+            var btn = win.querySelector('.sohtna-modal-close');
+            if (btn) btn.addEventListener('click', close);
+
+            /* close on overlay click */
+            overlay.addEventListener('click', function (e) {
+                if (e.target === overlay) close();
+            });
+
+            /* close on Escape */
+            document.addEventListener('keydown', function (e) {
+                if ((e.key === 'Escape' || e.keyCode === 27) && overlay.classList.contains('active')) {
+                    close();
+                }
+            });
+        }
+
+        return { open: open, close: close, _init: _init };
+    }());
+
+    /* =========================================================
+       TOAST
+    ========================================================= */
+    var toast = (function () {
+        var container;
+
+        function _ensure() {
+            if (container) return;
+            container = document.getElementById('sohtna-toast-container');
+        }
+
+        function show(opts) {
+            _ensure();
+            if (!container) return;
+
+            opts          = opts || {};
+            var type      = opts.type     || 'info';
+            var title     = opts.title    || TITLES[type] || 'Info';
+            var message   = opts.message  || '';
+            var duration  = (opts.duration !== undefined) ? opts.duration : 4000;
+
+            var t = document.createElement('div');
+            t.className = 'sohtna-toast toast-' + type;
+            t.innerHTML =
+                '<span class="sohtna-toast-icon">' + (ICONS[type] || '') + '</span>' +
+                '<div class="sohtna-toast-body">' +
+                    '<div class="sohtna-toast-title">' + _esc(title) + '</div>' +
+                    '<div class="sohtna-toast-message">' + _esc(message) + '</div>' +
+                '</div>' +
+                '<button class="sohtna-toast-close" aria-label="Dismiss">&times;</button>' +
+                '<div class="sohtna-toast-progress"><div class="sohtna-toast-progress-bar"></div></div>';
+
+            container.appendChild(t);
+
+            /* dismiss button */
+            t.querySelector('.sohtna-toast-close').addEventListener('click', function () {
+                _dismiss(t);
+            });
+
+            /* progress bar animation */
+            if (duration > 0) {
+                var bar = t.querySelector('.sohtna-toast-progress-bar');
+                bar.style.transition = 'transform ' + duration + 'ms linear';
+                setTimeout(function () { bar.style.transform = 'scaleX(0)'; }, 20);
+                setTimeout(function () { _dismiss(t); }, duration);
+            }
+        }
+
+        function _dismiss(el) {
+            el.classList.add('toast-hiding');
+            el.addEventListener('animationend', function () {
+                if (el.parentNode) el.parentNode.removeChild(el);
+            }, { once: true });
+        }
+
+        function _esc(s) {
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        return {
+            show    : show,
+            success : function (msg, ttl) { show({ type: 'success', title: ttl || 'Success', message: msg }); },
+            error   : function (msg, ttl) { show({ type: 'error',   title: ttl || 'Error',   message: msg }); },
+            warning : function (msg, ttl) { show({ type: 'warning', title: ttl || 'Warning', message: msg }); },
+            info    : function (msg, ttl) { show({ type: 'info',    title: ttl || 'Info',    message: msg }); }
+        };
+    }());
+
+    /* =========================================================
+       CONFIRM DIALOG
+       SOHTNA.confirm.show({ type, title, message, yesText, noText, onYes, onNo })
+    ========================================================= */
+    var confirm = (function () {
+        var overlay, header, icon, titleEl, msgEl, yesBtn, noBtn, _onYes, _onNo;
+
+        var CONFIRM_ICONS = {
+            success : 'fas fa-check-circle',
+            error   : 'fas fa-exclamation-triangle',
+            warning : 'fas fa-exclamation-triangle',
+            info    : 'fas fa-info-circle',
+            question: 'fas fa-question-circle'
+        };
+
+        function _ensure() {
+            if (overlay) return;
+            overlay = document.getElementById('sohtna-confirm-overlay');
+            header  = document.getElementById('sohtna-confirm-header');
+            icon    = document.getElementById('sohtna-confirm-icon');
+            titleEl = document.getElementById('sohtna-confirm-title');
+            msgEl   = document.getElementById('sohtna-confirm-msg');
+            yesBtn  = document.getElementById('sohtna-confirm-yes');
+            noBtn   = document.getElementById('sohtna-confirm-no');
+
+            if (yesBtn) yesBtn.addEventListener('click', function () { _close(); if (typeof _onYes === 'function') _onYes(); });
+            if (noBtn)  noBtn.addEventListener('click',  function () { _close(); if (typeof _onNo  === 'function') _onNo();  });
+            if (overlay) overlay.addEventListener('click', function (e) { if (e.target === overlay) { _close(); if (typeof _onNo === 'function') _onNo(); } });
+
+            document.addEventListener('keydown', function (e) {
+                if ((e.key === 'Escape' || e.keyCode === 27) && overlay && overlay.classList.contains('active')) {
+                    _close();
+                    if (typeof _onNo === 'function') _onNo();
+                }
+            });
+        }
+
+        function show(opts) {
+            _ensure();
+            if (!overlay) return;
+            opts = opts || {};
+
+            var type = opts.type || 'question';
+            _onYes = opts.onYes || null;
+            _onNo  = opts.onNo  || null;
+
+            header.className = 'sohtna-confirm-header confirm-' + type;
+            icon.className   = CONFIRM_ICONS[type] || CONFIRM_ICONS.question;
+            titleEl.textContent = opts.title   || 'Confirm';
+            msgEl.textContent   = opts.message || 'Are you sure?';
+            if (yesBtn) yesBtn.textContent = opts.yesText || 'Yes';
+            if (noBtn)  noBtn.textContent  = opts.noText  || 'No';
+
+            overlay.classList.add('active');
+            document.body.style.overflow = 'hidden';
+            if (yesBtn) setTimeout(function () { yesBtn.focus(); }, 60);
+        }
+
+        function _close() {
+            _ensure();
+            overlay.classList.remove('active');
+            document.body.style.overflow = '';
+            _onYes = null;
+            _onNo  = null;
+        }
+
+        return { show: show, close: _close };
+    }());
+
+    /* =========================================================
+       Boot
+    ========================================================= */
+    function _boot() {
+        modal._init();
+
+        /* honour data-sohtna-toast attributes written by server */
+        var pending = document.querySelectorAll('[data-sohtna-toast]');
+        for (var i = 0; i < pending.length; i++) {
+            var el = pending[i];
+            toast.show({
+                type    : el.getAttribute('data-sohtna-type')    || 'info',
+                title   : el.getAttribute('data-sohtna-title')   || '',
+                message : el.getAttribute('data-sohtna-message') || '',
+                duration: parseInt(el.getAttribute('data-sohtna-duration') || '4000', 10)
+            });
+            el.parentNode.removeChild(el);
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', _boot);
+    } else {
+        _boot();
+    }
+
+    /* expose */
+    global.SOHTNA = global.SOHTNA || {};
+    global.SOHTNA.modal   = modal;
+    global.SOHTNA.toast   = toast;
+    global.SOHTNA.confirm = confirm;
+
+}(window));

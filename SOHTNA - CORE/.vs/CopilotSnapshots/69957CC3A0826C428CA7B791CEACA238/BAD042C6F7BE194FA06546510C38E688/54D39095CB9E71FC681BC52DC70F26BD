@@ -1,0 +1,102 @@
+﻿using System;
+using System.Data.SqlClient;
+using System.Web.Security;
+
+namespace TimeAttendance.WebForms
+{
+    public partial class Login : System.Web.UI.Page
+    {
+        protected void btnLogin_Click(object sender, EventArgs e)
+        {
+            string username = txtUsername.Text.Trim();
+            string password = txtPassword.Text.Trim();
+
+            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+            {
+                lblMessage.Text = "❌ Username and password are required.";
+                return;
+            }
+
+            string connStr = Properties.Settings.Default.SQLCon;
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(connStr))
+                {
+                    SqlCommand cmd = new SqlCommand(@"
+                SELECT UserID, Role, SiteId, NameSurname 
+                FROM Users 
+                WHERE Username = @Username AND PasswordHash = @PasswordHash", conn);
+
+                    cmd.Parameters.AddWithValue("@Username", username);
+                    cmd.Parameters.AddWithValue("@PasswordHash", password);
+
+                    conn.Open();
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            object siteIdObj = reader["SiteId"];
+                            string role = reader["Role"].ToString().Trim();
+                            string nameSurname = reader["NameSurname"].ToString().Trim();
+                            string userId = reader["UserID"].ToString();
+
+                            // Validate SiteId exists and is not NULL
+                            if (siteIdObj == DBNull.Value || siteIdObj == null)
+                            {
+                                lblMessage.Text = "❌ Your account does not have a site assigned. Contact your administrator.";
+                                System.Diagnostics.Debug.WriteLine($"Login failed for {username}: SiteId is NULL or DBNull");
+                                return;
+                            }
+
+                            string siteId = siteIdObj.ToString().Trim();
+
+                            // Check for empty string after trim
+                            if (string.IsNullOrWhiteSpace(siteId))
+                            {
+                                lblMessage.Text = "❌ Your account has an empty site ID. Contact your administrator.";
+                                System.Diagnostics.Debug.WriteLine($"Login failed for {username}: SiteId is empty after trim");
+                                return;
+                            }
+
+                            // SiteId is valid (text-based like 'BH001')
+                            // All validations passed - set session variables
+                            Session.Timeout = 30;
+                            Session["UserID"] = userId;
+                            Session["Username"] = username;
+                            Session["Role"] = role;
+                            Session["SiteId"] = siteId;
+                            Session["NameSurname"] = nameSurname;
+
+                            // Load site-specific settings into the session so every
+                            // page can use them (DateFormat, TimeZone, SessionTimeout, etc.)
+                            string connStr2 = Properties.Settings.Default.SQLCon;
+                            SiteSettingsHelper.RefreshSessionSettings(Session, connStr2, siteId);
+
+                            System.Diagnostics.Debug.WriteLine($"✅ Login successful: {username}, UserID: {userId}, SiteId: {siteId}, Role: {role}");
+
+                            Response.Redirect("~/Dashboard.aspx", false);
+                            Context.ApplicationInstance.CompleteRequest();
+                            return;
+                        }
+                        else
+                        {
+                            lblMessage.Text = "❌ Invalid username or password.";
+                            System.Diagnostics.Debug.WriteLine($"Login failed for {username}: User not found");
+                        }
+                    }
+                }
+            }
+            catch (SqlException sqlEx)
+            {
+                lblMessage.Text = "❌ Database connection error. Please try again.";
+                System.Diagnostics.Debug.WriteLine($"SQL Error during login: {sqlEx.Message}");
+            }
+            catch (Exception ex)
+            {
+                lblMessage.Text = "❌ An error occurred. Please try again.";
+                System.Diagnostics.Debug.WriteLine($"General error during login: {ex.Message}");
+            }
+        }
+    }
+}

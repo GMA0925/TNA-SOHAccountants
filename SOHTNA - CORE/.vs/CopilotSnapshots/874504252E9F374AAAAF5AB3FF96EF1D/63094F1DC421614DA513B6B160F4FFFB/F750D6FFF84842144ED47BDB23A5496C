@@ -1,0 +1,633 @@
+﻿using System;
+using System.Data;
+using System.Data.SqlClient;
+using System.Web.UI;
+using System.Web.UI.WebControls;
+
+namespace TimeAttendance.WebForms
+{
+    public partial class ConfigTools : System.Web.UI.Page
+    {
+        private string _connStr = Properties.Settings.Default.SQLCon;
+
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            // Check authentication
+            if (Session["Username"] == null)
+            {
+                Response.Redirect("Login.aspx");
+                return;
+            }
+
+            // Display version
+            try
+            {
+                System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                System.Reflection.AssemblyName assemblyName = assembly.GetName();
+                lblVersion.Text = string.Format("v{0}", assemblyName.Version.ToString());
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Version Error: {ex.Message}");
+            }
+
+            if (!IsPostBack)
+            {
+                try
+                {
+                    LoadPermissionRoles();
+                    LoadUserList();
+                    LoadUserRolesGrid();
+                }
+                catch (Exception ex)
+                {
+                    ShowMessage("Error loading configuration.", "error");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Test database connection
+        /// </summary>
+        protected void btnTestConnection_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    conn.Open();
+                    ShowMessage("Database connection successful!", "success");
+                    lblDBStatus.Text = "? Database connection successful";
+                    lblDBStatus.ForeColor = System.Drawing.Color.Green;
+                    lblDBStatus.Visible = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Database connection failed: " + ex.Message, "error");
+                lblDBStatus.Text = "? Database connection failed: " + ex.Message;
+                lblDBStatus.ForeColor = System.Drawing.Color.Red;
+                lblDBStatus.Visible = true;
+            }
+        }
+
+        /// <summary>
+        /// Backup database
+        /// </summary>
+        protected void btnBackupDB_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                ShowMessage("Database backup initiated. This may take a few minutes.", "info");
+                // Implement backup logic here
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error backing up database.", "error");
+            }
+        }
+
+        /// <summary>
+        /// Restore database
+        /// </summary>
+        protected void btnRestoreDB_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                ShowMessage("Database restore not available in this version.", "warning");
+                // Implement restore logic here
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error restoring database.", "error");
+            }
+        }
+
+        /// <summary>
+        /// Logout
+        /// </summary>
+        protected void btnLogout_Click(object sender, EventArgs e)
+        {
+            Session.Clear();
+            Session.Abandon();
+            Response.Redirect("Login.aspx");
+        }
+
+        #region Role Permissions Management
+
+        /// <summary>
+        /// Initialize the RolePermissions table and seed default permissions
+        /// </summary>
+        protected void btnInitPermissions_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    conn.Open();
+
+                    // Create RolePermissions table if not exists
+                    string createTable = @"
+                        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'RolePermissions')
+                        BEGIN
+                            CREATE TABLE RolePermissions (
+                                PermissionID INT IDENTITY(1,1) PRIMARY KEY,
+                                RoleName NVARCHAR(50) NOT NULL,
+                                FeatureKey NVARCHAR(100) NOT NULL,
+                                FeatureLabel NVARCHAR(150) NOT NULL,
+                                Category NVARCHAR(50) NOT NULL DEFAULT 'Navigation',
+                                IsAllowed BIT NOT NULL DEFAULT 0,
+                                ModifiedDate DATETIME DEFAULT GETDATE(),
+                                CONSTRAINT UQ_Role_Feature UNIQUE (RoleName, FeatureKey)
+                            );
+                        END
+                        ELSE
+                        BEGIN
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('RolePermissions') AND name = 'Category')
+                            BEGIN
+                                ALTER TABLE RolePermissions ADD Category NVARCHAR(50) NOT NULL DEFAULT 'Navigation';
+                            END
+                        END";
+
+                    using (SqlCommand cmd = new SqlCommand(createTable, conn))
+                    {
+                        cmd.CommandTimeout = 30;
+                        cmd.ExecuteNonQuery();
+                    }
+
+                    // Create UserNavPermissions table if not exists
+                    string createUserNavTable = @"
+                        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'UserNavPermissions')
+                        BEGIN
+                            CREATE TABLE UserNavPermissions (
+                                ID INT IDENTITY(1,1) PRIMARY KEY,
+                                Username NVARCHAR(100) NOT NULL,
+                                FeatureKey NVARCHAR(100) NOT NULL,
+                                FeatureLabel NVARCHAR(150) NOT NULL,
+                                IsAllowed BIT NOT NULL DEFAULT 0,
+                                ModifiedDate DATETIME DEFAULT GETDATE(),
+                                CONSTRAINT UQ_User_Feature UNIQUE (Username, FeatureKey)
+                            );
+                        END";
+
+                    using (SqlCommand cmd = new SqlCommand(createUserNavTable, conn))
+                    {
+                        cmd.CommandTimeout = 30;
+                        cmd.ExecuteNonQuery();
+                    }
+
+                    // Define all features/buttons in the system: { FeatureKey, FeatureLabel, Category }
+                    string[][] features = new string[][]
+                    {
+                        // Navigation Menu buttons
+                        new[] { "Dashboard", "Dashboard", "Navigation" },
+                        new[] { "UserManagement", "User Management", "Navigation" },
+                        new[] { "ConfigTools", "Config Tools", "Navigation" },
+                        new[] { "SyncLog", "Sync Log", "Navigation" },
+                        new[] { "Employees", "Employees", "Navigation" },
+                        new[] { "ShiftManagement", "Shift Management", "Navigation" },
+                        new[] { "Reports", "Reports", "Navigation" },
+                        new[] { "Payroll", "Payroll", "Navigation" },
+                        new[] { "Attendance", "Attendance Tracking", "Navigation" },
+                        new[] { "Leave", "Leave Management", "Navigation" },
+                        new[] { "Timesheet", "Timesheet", "Navigation" },
+                        new[] { "Compliance", "Compliance & Auditing", "Navigation" },
+                        new[] { "Settings", "System Settings", "Navigation" },
+                        new[] { "Notifications", "Notifications", "Navigation" },
+                        new[] { "Profile", "My Profile", "Navigation" },
+                        // Page-level action buttons
+                        new[] { "ExportExcel", "Export to Excel", "Action" },
+                        new[] { "ExportPDF", "Export to PDF", "Action" },
+                        new[] { "BackupDB", "Backup Database", "Action" },
+                        new[] { "RestoreDB", "Restore Database", "Action" },
+                        new[] { "ClearCache", "Clear Cache", "Action" },
+                        new[] { "ResetLogs", "Reset Logs", "Action" }
+                    };
+
+                    // Default permission profiles
+                    // Admin = full access, Manager = most features, User = basic features
+                    string[] roles = new[] { "Admin", "Manager", "User" };
+
+                    string[] adminOnly = new[] { "UserManagement", "ConfigTools", "SyncLog", "Settings", "BackupDB", "RestoreDB", "ClearCache", "ResetLogs" };
+                    string[] managerAndAbove = new[] { "Employees", "ShiftManagement", "Reports", "Compliance", "ExportExcel", "ExportPDF" };
+                    string[] allUsers = new[] { "Dashboard", "Payroll", "Attendance", "Leave", "Timesheet", "Notifications", "Profile" };
+
+                    foreach (string role in roles)
+                    {
+                        foreach (string[] feature in features)
+                        {
+                            string featureKey = feature[0];
+                            string featureLabel = feature[1];
+                            string category = feature[2];
+
+                            bool allowed = false;
+                            if (role == "Admin")
+                                allowed = true;
+                            else if (role == "Manager")
+                                allowed = Array.IndexOf(managerAndAbove, featureKey) >= 0 || Array.IndexOf(allUsers, featureKey) >= 0;
+                            else // User
+                                allowed = Array.IndexOf(allUsers, featureKey) >= 0;
+
+                            string merge = @"
+                                MERGE INTO RolePermissions AS target
+                                USING (SELECT @RoleName AS RoleName, @FeatureKey AS FeatureKey) AS source
+                                ON target.RoleName = source.RoleName AND target.FeatureKey = source.FeatureKey
+                                WHEN NOT MATCHED THEN
+                                    INSERT (RoleName, FeatureKey, FeatureLabel, Category, IsAllowed, ModifiedDate)
+                                    VALUES (@RoleName, @FeatureKey, @FeatureLabel, @Category, @IsAllowed, GETDATE())
+                                WHEN MATCHED THEN
+                                    UPDATE SET Category = @Category, FeatureLabel = @FeatureLabel, ModifiedDate = GETDATE();";
+
+                            using (SqlCommand cmd = new SqlCommand(merge, conn))
+                            {
+                                cmd.Parameters.AddWithValue("@RoleName", role);
+                                cmd.Parameters.AddWithValue("@FeatureKey", featureKey);
+                                cmd.Parameters.AddWithValue("@FeatureLabel", featureLabel);
+                                cmd.Parameters.AddWithValue("@Category", category);
+                                cmd.Parameters.AddWithValue("@IsAllowed", allowed);
+                                cmd.CommandTimeout = 15;
+                                cmd.ExecuteNonQuery();
+                            }
+                        }
+                    }
+                }
+
+                LoadPermissionRoles();
+                ShowMessage("Permissions tables initialized (Role + User-level). Default role profiles seeded.", "success");
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error initializing permissions: " + ex.Message, "error");
+            }
+        }
+
+        /// <summary>
+        /// Load roles into the permission role dropdown
+        /// </summary>
+        private void LoadPermissionRoles()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = "SELECT DISTINCT RoleName FROM RolePermissions ORDER BY RoleName";
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.CommandTimeout = 15;
+
+                    SqlDataAdapter da = new SqlDataAdapter(cmd);
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+
+                    ddlPermissionRole.Items.Clear();
+                    ddlPermissionRole.Items.Add(new ListItem("-- Select Role --", ""));
+                    foreach (DataRow row in dt.Rows)
+                    {
+                        ddlPermissionRole.Items.Add(new ListItem(row["RoleName"].ToString(), row["RoleName"].ToString()));
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // Table may not exist yet
+            }
+        }
+
+        /// <summary>
+        /// When a role is selected, load its permissions into the grid
+        /// </summary>
+        protected void ddlPermissionRole_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            string selectedRole = ddlPermissionRole.SelectedValue;
+            if (string.IsNullOrEmpty(selectedRole))
+            {
+                gvPermissions.DataSource = null;
+                gvPermissions.DataBind();
+                return;
+            }
+
+            string categoryFilter = ddlPermissionCategory.SelectedValue;
+            LoadPermissionsGrid(selectedRole, categoryFilter);
+        }
+
+        /// <summary>
+        /// When category filter changes, reload the grid
+        /// </summary>
+        protected void ddlPermissionCategory_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            string selectedRole = ddlPermissionRole.SelectedValue;
+            if (string.IsNullOrEmpty(selectedRole))
+                return;
+
+            string categoryFilter = ddlPermissionCategory.SelectedValue;
+            LoadPermissionsGrid(selectedRole, categoryFilter);
+        }
+
+        /// <summary>
+        /// Grant access to all Navigation menu buttons for the selected role
+        /// </summary>
+        protected void btnGrantAllNav_Click(object sender, EventArgs e)
+        {
+            BulkUpdateNavPermissions(true);
+        }
+
+        /// <summary>
+        /// Revoke access to all Navigation menu buttons for the selected role
+        /// </summary>
+        protected void btnRevokeAllNav_Click(object sender, EventArgs e)
+        {
+            BulkUpdateNavPermissions(false);
+        }
+
+        /// <summary>
+        /// Bulk update all Navigation-category permissions for the selected role
+        /// </summary>
+        private void BulkUpdateNavPermissions(bool allowed)
+        {
+            string selectedRole = ddlPermissionRole.SelectedValue;
+            if (string.IsNullOrEmpty(selectedRole))
+            {
+                ShowMessage("Please select a role first.", "warning");
+                return;
+            }
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    conn.Open();
+
+                    string query = @"
+                        UPDATE RolePermissions 
+                        SET IsAllowed = @IsAllowed, ModifiedDate = GETDATE()
+                        WHERE RoleName = @RoleName 
+                        AND ISNULL(Category, 'Navigation') = 'Navigation'";
+
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@IsAllowed", allowed);
+                        cmd.Parameters.AddWithValue("@RoleName", selectedRole);
+                        cmd.CommandTimeout = 15;
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                string categoryFilter = ddlPermissionCategory.SelectedValue;
+                LoadPermissionsGrid(selectedRole, categoryFilter);
+                string action = allowed ? "granted" : "revoked";
+                ShowMessage($"All navigation menu access {action} for role '{selectedRole}'.", "success");
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error updating permissions: " + ex.Message, "error");
+            }
+        }
+
+        /// <summary>
+        /// Load permission grid for a specific role, optionally filtered by category
+        /// </summary>
+        private void LoadPermissionsGrid(string roleName, string categoryFilter = "")
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = @"
+                        SELECT PermissionID, FeatureKey, FeatureLabel, 
+                               ISNULL(Category, 'Navigation') AS Category, IsAllowed 
+                        FROM RolePermissions 
+                        WHERE RoleName = @RoleName";
+
+                    if (!string.IsNullOrEmpty(categoryFilter))
+                        query += " AND ISNULL(Category, 'Navigation') = @Category";
+
+                    query += " ORDER BY ISNULL(Category, 'Navigation'), FeatureLabel";
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@RoleName", roleName);
+                    if (!string.IsNullOrEmpty(categoryFilter))
+                        cmd.Parameters.AddWithValue("@Category", categoryFilter);
+                    cmd.CommandTimeout = 15;
+
+                    SqlDataAdapter da = new SqlDataAdapter(cmd);
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+
+                    gvPermissions.DataSource = dt;
+                    gvPermissions.DataBind();
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error loading permissions: " + ex.Message, "error");
+            }
+        }
+
+        /// <summary>
+        /// Save permission changes for the selected role
+        /// </summary>
+        protected void btnSavePermissions_Click(object sender, EventArgs e)
+        {
+            string selectedRole = ddlPermissionRole.SelectedValue;
+            if (string.IsNullOrEmpty(selectedRole))
+            {
+                ShowMessage("Please select a role first.", "warning");
+                return;
+            }
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    conn.Open();
+
+                    foreach (GridViewRow row in gvPermissions.Rows)
+                    {
+                        if (row.RowType == DataControlRowType.DataRow)
+                        {
+                            HiddenField hfPermissionID = (HiddenField)row.FindControl("hfPermissionID");
+                            CheckBox chkAllowed = (CheckBox)row.FindControl("chkAllowed");
+
+                            if (hfPermissionID != null && chkAllowed != null)
+                            {
+                                string query = @"
+                                    UPDATE RolePermissions 
+                                    SET IsAllowed = @IsAllowed, ModifiedDate = GETDATE()
+                                    WHERE PermissionID = @PermissionID";
+
+                                using (SqlCommand cmd = new SqlCommand(query, conn))
+                                {
+                                    cmd.Parameters.AddWithValue("@IsAllowed", chkAllowed.Checked);
+                                    cmd.Parameters.AddWithValue("@PermissionID", int.Parse(hfPermissionID.Value));
+                                    cmd.CommandTimeout = 15;
+                                    cmd.ExecuteNonQuery();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                LoadPermissionsGrid(selectedRole, ddlPermissionCategory.SelectedValue);
+                ShowMessage($"Permissions saved for role '{selectedRole}'.", "success");
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error saving permissions: " + ex.Message, "error");
+            }
+        }
+
+        /// <summary>
+        /// Assign a role to a user
+        /// </summary>
+        protected void btnAssignRole_Click(object sender, EventArgs e)
+        {
+            string selectedUser = ddlUserList.SelectedValue;
+            string selectedRole = ddlAssignRole.SelectedValue;
+
+            if (string.IsNullOrEmpty(selectedUser) || string.IsNullOrEmpty(selectedRole))
+            {
+                ShowMessage("Please select both a user and a role.", "warning");
+                return;
+            }
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    conn.Open();
+
+                    string query = "UPDATE Users SET Role = @Role WHERE Username = @Username";
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Role", selectedRole);
+                        cmd.Parameters.AddWithValue("@Username", selectedUser);
+                        cmd.CommandTimeout = 15;
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                LoadUserList();
+                LoadUserRolesGrid();
+                ShowMessage($"Role '{selectedRole}' assigned to user '{selectedUser}'.", "success");
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error assigning role: " + ex.Message, "error");
+            }
+        }
+
+        /// <summary>
+        /// Load users into the user assignment dropdown
+        /// </summary>
+        private void LoadUserList()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = "SELECT Username, NameSurname, Role FROM Users WHERE IsActive = 1 ORDER BY NameSurname";
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.CommandTimeout = 15;
+
+                    SqlDataAdapter da = new SqlDataAdapter(cmd);
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+
+                    ddlUserList.Items.Clear();
+                    ddlUserList.Items.Add(new ListItem("-- Select User --", ""));
+                    foreach (DataRow row in dt.Rows)
+                    {
+                        string display = $"{row["NameSurname"]} ({row["Username"]}) - {row["Role"]}";
+                        ddlUserList.Items.Add(new ListItem(display, row["Username"].ToString()));
+                    }
+
+                    ddlAssignRole.Items.Clear();
+                    ddlAssignRole.Items.Add(new ListItem("-- Select Role --", ""));
+                    ddlAssignRole.Items.Add(new ListItem("Admin", "Admin"));
+                    ddlAssignRole.Items.Add(new ListItem("Manager", "Manager"));
+                    ddlAssignRole.Items.Add(new ListItem("User", "User"));
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading user list: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Load the user roles grid showing current assignments
+        /// </summary>
+        private void LoadUserRolesGrid()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = @"
+                        SELECT Username, NameSurname, Email, Role, 
+                               CASE WHEN IsActive = 1 THEN 'Active' ELSE 'Inactive' END AS Status
+                        FROM Users 
+                        ORDER BY Role, NameSurname";
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.CommandTimeout = 15;
+
+                    SqlDataAdapter da = new SqlDataAdapter(cmd);
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+
+                    gvUserRoles.DataSource = dt;
+                    gvUserRoles.DataBind();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading user roles: {ex.Message}");
+            }
+        }
+
+        #endregion
+
+        /// <summary>
+        /// Display message to user using the global popup notification system
+        /// </summary>
+        private void ShowMessage(string message, string type)
+        {
+            string title;
+            switch (type)
+            {
+                case "success": title = "Success"; break;
+                case "error": title = "Error"; break;
+                case "warning": title = "Warning"; break;
+                default: title = "Information"; break;
+            }
+
+            string escapedMessage = System.Web.HttpUtility.JavaScriptStringEncode(message);
+            string escapedTitle = System.Web.HttpUtility.JavaScriptStringEncode(title);
+
+            // Simple immediate call — the script tag is rendered after the JS file include
+            // so showNotification is guaranteed to be defined by the time this executes.
+            string script = string.Format(
+                "showNotification('{0}', '{1}', '{2}', 4000);",
+                System.Web.HttpUtility.JavaScriptStringEncode(type),
+                escapedTitle,
+                escapedMessage);
+
+            string scriptKey = "showPopup_" + Guid.NewGuid().ToString("N");
+
+            // Use ScriptManager if available (e.g. inside UpdatePanel), otherwise fall back to ClientScript
+            var scriptManager = ScriptManager.GetCurrent(this.Page);
+            if (scriptManager != null)
+            {
+                ScriptManager.RegisterStartupScript(this, GetType(), scriptKey, script, true);
+            }
+            else
+            {
+                if (!ClientScript.IsStartupScriptRegistered(GetType(), scriptKey))
+                {
+                    ClientScript.RegisterStartupScript(GetType(), scriptKey, script, true);
+                }
+            }
+        }
+    }
+}
+

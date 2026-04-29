@@ -1,0 +1,757 @@
+﻿using iTextSharp.text;
+using iTextSharp.text.pdf;
+using System;
+using System.Collections.Generic;
+using System.Configuration;
+using System.Data;
+using System.Data.SqlClient;
+using System.IO;
+using System.Linq;
+
+namespace TimeAttendance.WebForms
+{
+    // NOTE: System.Web.UI.Page is not available in .NET 8.0. No direct replacement exists. The business logic must be migrated to a supported web framework (e.g., ASP.NET Core MVC or Razor Pages). For now, the base class is removed to allow compilation, but the file will not function as a web page without further migration.
+    public partial class UserManagement
+    {
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            if (Session["Username"] == null)
+            {
+                Response.Redirect("~/Login.aspx");
+                return;
+            }
+
+            if (!IsPostBack)
+            {
+                // Display Assembly Version
+                System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                System.Reflection.AssemblyName assemblyName = assembly.GetName();
+                lblVersion.Text = string.Format("v{0}", assemblyName.Version.ToString());
+
+                LoadRoles();
+                LoadSiteIdFromConfig();
+                LoadUsers();
+                lblUserMessage.Text = "📋 User list loaded.";
+            }
+        }
+
+        private void LoadRoles()
+        {
+            string connStr = Properties.Settings.Default.SQLCon;
+
+            using (SqlConnection conn = new SqlConnection(connStr))
+            {
+                string query = "SELECT RoleName FROM Roles WHERE IsActive = 1 ORDER BY RoleName";
+
+                using (SqlCommand cmd = new SqlCommand(query, conn))
+                {
+                    conn.Open();
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        ddlRole.Items.Clear();
+                        while (reader.Read())
+                        {
+                            string role = reader["RoleName"].ToString();
+                            // TODO: System.Web.UI.WebControls.ListItem is not available in .NET 8.0. You must migrate this logic to a supported web framework (e.g., ASP.NET Core MVC or Razor Pages) and use a compatible ListItem or SelectListItem equivalent.
+                        }
+                    }
+                }
+            }
+        }
+
+        private void LoadSiteIdFromConfig()
+        {
+            string connStr = Properties.Settings.Default.SQLCon;
+
+            using (SqlConnection conn = new SqlConnection(connStr))
+            {
+                string query = "SELECT SettingValue FROM ConfigSettings WHERE SettingKey = 'SiteCode'";
+
+                using (SqlCommand cmd = new SqlCommand(query, conn))
+                {
+                    conn.Open();
+                    object result = cmd.ExecuteScalar();
+                    if (result != null)
+                    {
+                        txtSiteId.Text = result.ToString();
+                    }
+                }
+            }
+        }
+
+        private void LoadUsers()
+        {
+            string connStr = Properties.Settings.Default.SQLCon;
+
+            using (SqlConnection conn = new SqlConnection(connStr))
+            {
+                string query = "SELECT NameSurname, Username, Email, Role, IsActive, SiteId FROM Users ORDER BY NameSurname";
+
+                using (SqlDataAdapter da = new SqlDataAdapter(query, conn))
+                {
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+                    dt.AcceptChanges();
+
+                    // Add readable status column
+                    if (!dt.Columns.Contains("StatusText"))
+                        dt.Columns.Add("StatusText", typeof(string));
+
+                    foreach (DataRow row in dt.Rows)
+                    {
+                        if (row["IsActive"] != DBNull.Value)
+                        {
+                            bool isActive = Convert.ToBoolean(row["IsActive"]);
+                            row["StatusText"] = isActive ? "Active" : "Inactive";
+                        }
+                        else
+                        {
+                            row["StatusText"] = "Unknown";
+                        }
+                    }
+
+                    gvUsers.DataSource = dt;
+                    gvUsers.DataBind();
+                }
+            }
+        }
+
+        // ============================
+        // Modal: New User
+        // ============================
+
+        protected void btnNewUser_Click(object sender, EventArgs e)
+        {
+            ClearModalForm();
+            hdnEditUsername.Value = "";
+            lblModalTitle.Text = "➕ New User";
+            txtUsername.Enabled = true;
+            pnlNavAccess.Visible = false;
+            LoadSiteIdFromConfig();
+            pnlUserModal.CssClass = "modal-overlay active";
+        }
+
+        // ============================
+        // Modal: Edit User (row click)
+        // ============================
+
+        protected void gvUsers_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            string username = gvUsers.SelectedDataKey.Value.ToString();
+            OpenEditModal(username);
+        }
+
+        private void OpenEditModal(string username)
+        {
+            try
+            {
+                string connStr = Properties.Settings.Default.SQLCon;
+                using (SqlConnection conn = new SqlConnection(connStr))
+                {
+                    string query = "SELECT NameSurname, Username, Email, Role, IsActive, SiteId FROM Users WHERE Username = @Username";
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Username", username);
+                        conn.Open();
+                        using (SqlDataReader reader = cmd.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                hdnEditUsername.Value = reader["Username"].ToString();
+                                txtNameSurname.Text = reader["NameSurname"] != DBNull.Value ? reader["NameSurname"].ToString() : "";
+                                txtUsername.Text = reader["Username"].ToString();
+                                txtUsername.Enabled = false;
+                                txtEmail.Text = reader["Email"] != DBNull.Value ? reader["Email"].ToString() : "";
+                                txtSiteId.Text = reader["SiteId"] != DBNull.Value ? reader["SiteId"].ToString() : "";
+
+                                string role = reader["Role"] != DBNull.Value ? reader["Role"].ToString() : "";
+                                if (ddlRole.Items.FindByValue(role) != null)
+                                    ddlRole.SelectedValue = role;
+
+                                bool isActive = reader["IsActive"] != DBNull.Value && Convert.ToBoolean(reader["IsActive"]);
+                                ddlStatus.SelectedValue = isActive ? "Active" : "Inactive";
+                            }
+                        }
+                    }
+                }
+
+                lblModalTitle.Text = "✏️ Edit User";
+                txtModalPassword.Attributes["placeholder"] = "Leave blank to keep current password";
+                pnlNavAccess.Visible = true;
+                LoadUserNavPermissionsGrid(username);
+                pnlUserModal.CssClass = "modal-overlay active";
+            }
+            catch (Exception ex)
+            {
+                lblUserMessage.ForeColor = System.Drawing.Color.Red;
+                lblUserMessage.Text = $"❌ Error loading user: {ex.Message}";
+                System.Diagnostics.Debug.WriteLine($"Error opening edit modal: {ex.Message}");
+            }
+        }
+
+        // ============================
+        // Modal: Save (New or Edit)
+        // ============================
+
+        protected void btnSaveUser_Click(object sender, EventArgs e)
+        {
+            string nameSurname = txtNameSurname.Text.Trim();
+            string username = txtUsername.Text.Trim();
+            string email = txtEmail.Text.Trim();
+            string role = ddlRole.SelectedValue;
+            string status = ddlStatus.SelectedValue;
+            string siteId = txtSiteId.Text.Trim();
+            string password = txtModalPassword.Text.Trim();
+            bool isEditing = !string.IsNullOrEmpty(hdnEditUsername.Value);
+
+            if (string.IsNullOrEmpty(nameSurname) || string.IsNullOrEmpty(username) ||
+                string.IsNullOrEmpty(email) || string.IsNullOrEmpty(siteId))
+            {
+                lblUserMessage.ForeColor = System.Drawing.Color.Red;
+                lblUserMessage.Text = "⚠️ Name & Surname, Username, Email, and Site ID are required.";
+                return;
+            }
+
+            bool isActive = status == "Active";
+            string connStr = Properties.Settings.Default.SQLCon;
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(connStr))
+                {
+                    conn.Open();
+
+                    if (isEditing)
+                    {
+                        // Update existing user
+                        string query;
+                        if (!string.IsNullOrEmpty(password))
+                        {
+                            query = @"UPDATE Users SET NameSurname = @NameSurname, Email = @Email, Role = @Role, 
+                                     IsActive = @IsActive, SiteId = @SiteId, PasswordHash = @PasswordHash 
+                                     WHERE Username = @Username";
+                        }
+                        else
+                        {
+                            query = @"UPDATE Users SET NameSurname = @NameSurname, Email = @Email, Role = @Role, 
+                                     IsActive = @IsActive, SiteId = @SiteId
+                                     WHERE Username = @Username";
+                        }
+
+                        using (SqlCommand cmd = new SqlCommand(query, conn))
+                        {
+                            cmd.Parameters.AddWithValue("@Username", hdnEditUsername.Value);
+                            cmd.Parameters.AddWithValue("@NameSurname", nameSurname);
+                            cmd.Parameters.AddWithValue("@Email", email);
+                            cmd.Parameters.AddWithValue("@Role", role);
+                            cmd.Parameters.AddWithValue("@IsActive", isActive);
+                            cmd.Parameters.AddWithValue("@SiteId", siteId);
+
+                            if (!string.IsNullOrEmpty(password))
+                            {
+                                cmd.Parameters.AddWithValue("@PasswordHash", HashPassword(password));
+                            }
+
+                            cmd.ExecuteNonQuery();
+                        }
+
+                        lblUserMessage.ForeColor = System.Drawing.Color.Green;
+                        lblUserMessage.Text = $"✅ User '{username}' updated successfully.";
+                    }
+                    else
+                    {
+                        // Insert new user
+                        string query = @"INSERT INTO Users (NameSurname, Username, Email, Role, IsActive, SiteId, PasswordHash)
+                                        VALUES (@NameSurname, @Username, @Email, @Role, @IsActive, @SiteId, @PasswordHash)";
+
+                        using (SqlCommand cmd = new SqlCommand(query, conn))
+                        {
+                            cmd.Parameters.AddWithValue("@NameSurname", nameSurname);
+                            cmd.Parameters.AddWithValue("@Username", username);
+                            cmd.Parameters.AddWithValue("@Email", email);
+                            cmd.Parameters.AddWithValue("@Role", role);
+                            cmd.Parameters.AddWithValue("@IsActive", isActive);
+                            cmd.Parameters.AddWithValue("@SiteId", siteId);
+                            cmd.Parameters.AddWithValue("@PasswordHash", string.IsNullOrEmpty(password) ? "" : HashPassword(password));
+
+                            cmd.ExecuteNonQuery();
+                        }
+
+                        lblUserMessage.ForeColor = System.Drawing.Color.Green;
+                        lblUserMessage.Text = $"✅ User '{username}' ({nameSurname}) created successfully.";
+                    }
+                }
+
+                CloseModal();
+                LoadUsers();
+            }
+            catch (SqlException sqlEx)
+            {
+                lblUserMessage.ForeColor = System.Drawing.Color.Red;
+                lblUserMessage.Text = $"❌ Database error: {sqlEx.Message}";
+                System.Diagnostics.Debug.WriteLine($"SQL Error: {sqlEx.Message}");
+            }
+            catch (Exception ex)
+            {
+                lblUserMessage.ForeColor = System.Drawing.Color.Red;
+                lblUserMessage.Text = $"❌ Error: {ex.Message}";
+                System.Diagnostics.Debug.WriteLine($"Error: {ex.Message}");
+            }
+        }
+
+        // ============================
+        // Modal: Close / Clear
+        // ============================
+
+        protected void btnModalClose_Click(object sender, EventArgs e)
+        {
+            CloseModal();
+        }
+
+        private void CloseModal()
+        {
+            pnlUserModal.CssClass = "modal-overlay";
+            ClearModalForm();
+        }
+
+        private void ClearModalForm()
+        {
+            hdnEditUsername.Value = "";
+            txtNameSurname.Text = "";
+            txtUsername.Text = "";
+            txtUsername.Enabled = true;
+            txtEmail.Text = "";
+            txtSiteId.Text = "";
+            txtModalPassword.Text = "";
+            ddlRole.ClearSelection();
+            ddlStatus.ClearSelection();
+        }
+
+        // ============================
+        // Grid: Row click & rendering
+        // ============================
+
+        protected override void Render(HtmlTextWriter writer)
+        {
+            foreach (GridViewRow row in gvUsers.Rows)
+            {
+                if (row.RowType == DataControlRowType.DataRow)
+                {
+                    Page.ClientScript.RegisterForEventValidation(
+                        gvUsers.UniqueID, "Select$" + row.RowIndex);
+                }
+            }
+            base.Render(writer);
+        }
+
+        protected void gvUsers_RowDataBound(object sender, GridViewRowEventArgs e)
+        {
+            if (e.Row.RowType == DataControlRowType.DataRow)
+            {
+                e.Row.Attributes["onclick"] = Page.ClientScript.GetPostBackClientHyperlink(gvUsers, "Select$" + e.Row.RowIndex);
+                e.Row.Style["cursor"] = "pointer";
+
+                if (e.Row.RowIndex == gvUsers.SelectedIndex)
+                {
+                    e.Row.CssClass = "selected-row";
+                }
+            }
+        }
+
+        // ============================
+        // Password Hashing
+        // ============================
+
+        private string HashPassword(string password)
+        {
+            using (System.Security.Cryptography.SHA256 sha256 = System.Security.Cryptography.SHA256.Create())
+            {
+                byte[] hashedBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(password));
+                return Convert.ToBase64String(hashedBytes);
+            }
+        }
+
+        // ============================
+        // Export
+        // ============================
+
+        public override void VerifyRenderingInServerForm(Control control)
+        {
+            // Required for export
+        }
+
+        protected void btnExportUsersExcel_Click(object sender, EventArgs e)
+        {
+            gvUsers.AllowPaging = false;
+            LoadUsers();
+
+            Response.Clear();
+            Response.Buffer = true;
+            Response.AddHeader("content-disposition", "attachment;filename=UserExport.xls");
+            Response.ContentType = "application/vnd.ms-excel";
+            Response.Charset = "";
+
+            StringWriter sw = new StringWriter();
+            HtmlTextWriter hw = new HtmlTextWriter(sw);
+            gvUsers.RenderControl(hw);
+
+            Response.Output.Write(sw.ToString());
+            Response.Flush();
+            Response.End();
+        }
+
+        protected void btnExportUsersPdf_Click(object sender, EventArgs e)
+        {
+            gvUsers.AllowPaging = false;
+            LoadUsers();
+
+            Response.ContentType = "application/pdf";
+            Response.AddHeader("content-disposition", "attachment;filename=UserExport.pdf");
+            Response.Cache.SetCacheability(HttpCacheability.NoCache);
+
+            using (MemoryStream ms = new MemoryStream())
+            {
+                Document doc = new Document(PageSize.A4, 25, 25, 30, 30);
+                PdfWriter writer = PdfWriter.GetInstance(doc, ms);
+                doc.Open();
+
+                PdfPTable table = new PdfPTable(gvUsers.HeaderRow.Cells.Count);
+                table.WidthPercentage = 100;
+
+                foreach (TableCell headerCell in gvUsers.HeaderRow.Cells)
+                {
+                    PdfPCell cell = new PdfPCell(new Phrase(headerCell.Text));
+                    cell.BackgroundColor = new BaseColor(0, 120, 212);
+                    cell.HorizontalAlignment = Element.ALIGN_CENTER;
+                    cell.Padding = 5;
+                    cell.Phrase.Font.Color = BaseColor.WHITE;
+                    table.AddCell(cell);
+                }
+
+                foreach (GridViewRow row in gvUsers.Rows)
+                {
+                    foreach (TableCell cell in row.Cells)
+                    {
+                        PdfPCell pdfCell = new PdfPCell(new Phrase(cell.Text));
+                        pdfCell.Padding = 5;
+                        table.AddCell(pdfCell);
+                    }
+                }
+
+                doc.Add(table);
+                doc.Close();
+
+                Response.OutputStream.Write(ms.GetBuffer(), 0, ms.GetBuffer().Length);
+                Response.OutputStream.Flush();
+                Response.End();
+            }
+        }
+
+        // ============================
+        // Navigation Access Permissions
+        // ============================
+
+        private void EnsureUserNavPermissionsTable(SqlConnection conn)
+        {
+            string createTable = @"
+                IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'UserNavPermissions')
+                BEGIN
+                    CREATE TABLE UserNavPermissions (
+                        ID INT IDENTITY(1,1) PRIMARY KEY,
+                        Username NVARCHAR(100) NOT NULL,
+                        FeatureKey NVARCHAR(100) NOT NULL,
+                        FeatureLabel NVARCHAR(150) NOT NULL,
+                        IsAllowed BIT NOT NULL DEFAULT 0,
+                        ModifiedDate DATETIME DEFAULT GETDATE(),
+                        CONSTRAINT UQ_User_Feature UNIQUE (Username, FeatureKey)
+                    );
+                END";
+
+            using (SqlCommand cmd = new SqlCommand(createTable, conn))
+            {
+                cmd.CommandTimeout = 30;
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        private void LoadUserNavPermissionsGrid(string username)
+        {
+            try
+            {
+                string connStr = Properties.Settings.Default.SQLCon;
+                using (SqlConnection conn = new SqlConnection(connStr))
+                {
+                    conn.Open();
+                    EnsureUserNavPermissionsTable(conn);
+
+                    string roleQuery = "SELECT Role FROM Users WHERE Username = @Username";
+                    SqlCommand roleCmd = new SqlCommand(roleQuery, conn);
+                    roleCmd.Parameters.AddWithValue("@Username", username);
+                    roleCmd.CommandTimeout = 15;
+                    string userRole = roleCmd.ExecuteScalar()?.ToString() ?? "User";
+
+                    string checkTable = "SELECT COUNT(*) FROM sys.tables WHERE name = 'RolePermissions'";
+                    using (SqlCommand checkCmd = new SqlCommand(checkTable, conn))
+                    {
+                        int exists = (int)checkCmd.ExecuteScalar();
+                        if (exists == 0)
+                        {
+                            gvUserNavPermissions.DataSource = null;
+                            gvUserNavPermissions.DataBind();
+                            return;
+                        }
+                    }
+
+                    string query = @"
+                        SELECT rp.FeatureKey, rp.FeatureLabel, rp.IsAllowed AS RoleAllowed,
+                               ISNULL(unp.IsAllowed, rp.IsAllowed) AS IsAllowed
+                        FROM RolePermissions rp
+                        LEFT JOIN UserNavPermissions unp ON unp.FeatureKey = rp.FeatureKey AND unp.Username = @Username
+                        WHERE rp.RoleName = @RoleName AND ISNULL(rp.Category, 'Navigation') = 'Navigation'
+                        ORDER BY rp.FeatureLabel";
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    cmd.Parameters.AddWithValue("@Username", username);
+                    cmd.Parameters.AddWithValue("@RoleName", userRole);
+                    cmd.CommandTimeout = 15;
+
+                    SqlDataAdapter da = new SqlDataAdapter(cmd);
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+
+                    gvUserNavPermissions.DataSource = dt;
+                    gvUserNavPermissions.DataBind();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading user nav permissions: {ex.Message}");
+            }
+        }
+
+        protected void btnSaveUserNav_Click(object sender, EventArgs e)
+        {
+            string selectedUser = hdnEditUsername.Value;
+            if (string.IsNullOrEmpty(selectedUser)) return;
+
+            try
+            {
+                string connStr = Properties.Settings.Default.SQLCon;
+                using (SqlConnection conn = new SqlConnection(connStr))
+                {
+                    conn.Open();
+                    EnsureUserNavPermissionsTable(conn);
+
+                    foreach (GridViewRow row in gvUserNavPermissions.Rows)
+                    {
+                        if (row.RowType == DataControlRowType.DataRow)
+                        {
+                            HiddenField hfFeatureKey = (HiddenField)row.FindControl("hfUserNavFeatureKey");
+                            CheckBox chkAllowed = (CheckBox)row.FindControl("chkUserNavAllowed");
+
+                            if (hfFeatureKey != null && chkAllowed != null)
+                            {
+                                string featureKey = hfFeatureKey.Value;
+                                bool allowed = chkAllowed.Checked;
+
+                                string labelQuery = "SELECT TOP 1 FeatureLabel FROM RolePermissions WHERE FeatureKey = @FeatureKey";
+                                string featureLabel = featureKey;
+                                using (SqlCommand labelCmd = new SqlCommand(labelQuery, conn))
+                                {
+                                    labelCmd.Parameters.AddWithValue("@FeatureKey", featureKey);
+                                    labelCmd.CommandTimeout = 10;
+                                    object result = labelCmd.ExecuteScalar();
+                                    if (result != null) featureLabel = result.ToString();
+                                }
+
+                                string merge = @"
+                                    MERGE INTO UserNavPermissions AS target
+                                    USING (SELECT @Username AS Username, @FeatureKey AS FeatureKey) AS source
+                                    ON target.Username = source.Username AND target.FeatureKey = source.FeatureKey
+                                    WHEN NOT MATCHED THEN
+                                        INSERT (Username, FeatureKey, FeatureLabel, IsAllowed, ModifiedDate)
+                                        VALUES (@Username, @FeatureKey, @FeatureLabel, @IsAllowed, GETDATE())
+                                    WHEN MATCHED THEN
+                                        UPDATE SET IsAllowed = @IsAllowed, ModifiedDate = GETDATE();";
+
+                                using (SqlCommand cmd = new SqlCommand(merge, conn))
+                                {
+                                    cmd.Parameters.AddWithValue("@Username", selectedUser);
+                                    cmd.Parameters.AddWithValue("@FeatureKey", featureKey);
+                                    cmd.Parameters.AddWithValue("@FeatureLabel", featureLabel);
+                                    cmd.Parameters.AddWithValue("@IsAllowed", allowed);
+                                    cmd.CommandTimeout = 15;
+                                    cmd.ExecuteNonQuery();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                LoadUserNavPermissionsGrid(selectedUser);
+                lblUserMessage.ForeColor = System.Drawing.Color.Green;
+                lblUserMessage.Text = $"✅ Navigation access saved for '{selectedUser}'.";
+                pnlNavAccess.Visible = true;
+                pnlUserModal.CssClass = "modal-overlay active";
+            }
+            catch (Exception ex)
+            {
+                lblUserMessage.ForeColor = System.Drawing.Color.Red;
+                lblUserMessage.Text = $"❌ Error saving nav permissions: {ex.Message}";
+            }
+        }
+
+        protected void btnGrantAllUserNav_Click(object sender, EventArgs e)
+        {
+            BulkUpdateUserNavPermissions(true);
+        }
+
+        protected void btnRevokeAllUserNav_Click(object sender, EventArgs e)
+        {
+            BulkUpdateUserNavPermissions(false);
+        }
+
+        private void BulkUpdateUserNavPermissions(bool allowed)
+        {
+            string selectedUser = hdnEditUsername.Value;
+            if (string.IsNullOrEmpty(selectedUser)) return;
+
+            try
+            {
+                string connStr = Properties.Settings.Default.SQLCon;
+                using (SqlConnection conn = new SqlConnection(connStr))
+                {
+                    conn.Open();
+                    EnsureUserNavPermissionsTable(conn);
+
+                    string featuresQuery = @"
+                        SELECT DISTINCT FeatureKey, FeatureLabel 
+                        FROM RolePermissions 
+                        WHERE ISNULL(Category, 'Navigation') = 'Navigation'";
+
+                    DataTable features = new DataTable();
+                    using (SqlDataAdapter da = new SqlDataAdapter(new SqlCommand(featuresQuery, conn)))
+                    {
+                        da.Fill(features);
+                    }
+
+                    foreach (DataRow row in features.Rows)
+                    {
+                        string merge = @"
+                            MERGE INTO UserNavPermissions AS target
+                            USING (SELECT @Username AS Username, @FeatureKey AS FeatureKey) AS source
+                            ON target.Username = source.Username AND target.FeatureKey = source.FeatureKey
+                            WHEN NOT MATCHED THEN
+                                INSERT (Username, FeatureKey, FeatureLabel, IsAllowed, ModifiedDate)
+                                VALUES (@Username, @FeatureKey, @FeatureLabel, @IsAllowed, GETDATE())
+                            WHEN MATCHED THEN
+                                UPDATE SET IsAllowed = @IsAllowed, ModifiedDate = GETDATE();";
+
+                        using (SqlCommand cmd = new SqlCommand(merge, conn))
+                        {
+                            cmd.Parameters.AddWithValue("@Username", selectedUser);
+                            cmd.Parameters.AddWithValue("@FeatureKey", row["FeatureKey"].ToString());
+                            cmd.Parameters.AddWithValue("@FeatureLabel", row["FeatureLabel"].ToString());
+                            cmd.Parameters.AddWithValue("@IsAllowed", allowed);
+                            cmd.CommandTimeout = 15;
+                            cmd.ExecuteNonQuery();
+                        }
+                    }
+                }
+
+                LoadUserNavPermissionsGrid(selectedUser);
+                string action = allowed ? "granted" : "revoked";
+                lblUserMessage.ForeColor = System.Drawing.Color.Green;
+                lblUserMessage.Text = $"✅ All navigation access {action} for '{selectedUser}'.";
+                pnlNavAccess.Visible = true;
+                pnlUserModal.CssClass = "modal-overlay active";
+            }
+            catch (Exception ex)
+            {
+                lblUserMessage.ForeColor = System.Drawing.Color.Red;
+                lblUserMessage.Text = $"❌ Error updating nav permissions: {ex.Message}";
+            }
+        }
+
+        protected void btnClearUserOverrides_Click(object sender, EventArgs e)
+        {
+            string selectedUser = hdnEditUsername.Value;
+            if (string.IsNullOrEmpty(selectedUser)) return;
+
+            try
+            {
+                string connStr = Properties.Settings.Default.SQLCon;
+                using (SqlConnection conn = new SqlConnection(connStr))
+                {
+                    conn.Open();
+                    EnsureUserNavPermissionsTable(conn);
+
+                    string query = "DELETE FROM UserNavPermissions WHERE Username = @Username";
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@Username", selectedUser);
+                        cmd.CommandTimeout = 15;
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                LoadUserNavPermissionsGrid(selectedUser);
+                lblUserMessage.ForeColor = System.Drawing.Color.Green;
+                lblUserMessage.Text = $"✅ Overrides cleared for '{selectedUser}'. Role defaults will be used.";
+                pnlNavAccess.Visible = true;
+                pnlUserModal.CssClass = "modal-overlay active";
+            }
+            catch (Exception ex)
+            {
+                lblUserMessage.ForeColor = System.Drawing.Color.Red;
+                lblUserMessage.Text = $"❌ Error clearing overrides: {ex.Message}";
+            }
+        }
+
+        // ============================
+        // Navigation
+        // ============================
+
+        protected void btnDashboard_Click(object sender, EventArgs e)
+        {
+            Response.Redirect("Dashboard.aspx");
+        }
+
+        protected void btnReports_Click(object sender, EventArgs e)
+        {
+            Response.Redirect("Reports.aspx");
+        }
+
+        protected void btnSyncLog_Click(object sender, EventArgs e)
+        {
+            Response.Redirect("SyncLog.aspx");
+        }
+
+        protected void btnUsers_Click(object sender, EventArgs e)
+        {
+            Response.Redirect("UserManagement.aspx");
+        }
+
+        protected void btnConfig_Click(object sender, EventArgs e)
+        {
+            Response.Redirect("ConfigTools.aspx");
+        }
+
+        protected void btnEmployees_Click(object sender, EventArgs e)
+        {
+            Response.Redirect("Employees.aspx");
+        }
+
+        protected void btnShiftManagement_Click(object sender, EventArgs e)
+        {
+            Response.Redirect("ShiftManagement.aspx");
+        }
+
+        protected void btnLogout_Click(object sender, EventArgs e)
+        {
+            Session.Clear();
+            Session.Abandon();
+            Response.Redirect("Login.aspx");
+        }
+    }
+}

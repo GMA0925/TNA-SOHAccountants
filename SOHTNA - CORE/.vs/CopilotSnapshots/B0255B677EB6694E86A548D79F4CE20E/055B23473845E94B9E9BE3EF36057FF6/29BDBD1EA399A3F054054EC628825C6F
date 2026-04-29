@@ -1,0 +1,573 @@
+﻿using System;
+using System;
+using System.Data;
+using System.Data.SqlClient;
+using System.Globalization;
+using System.Web.UI;
+using System.Web.UI.WebControls;
+
+namespace TimeAttendance.WebForms
+{
+    public partial class ClockAdmin : System.Web.UI.Page
+    {
+        protected global::System.Web.UI.WebControls.Label lblMessage;
+        protected global::System.Web.UI.WebControls.HiddenField hfActivePanel;
+        protected global::System.Web.UI.WebControls.DropDownList ddlSiteID;
+        protected global::System.Web.UI.WebControls.DropDownList ddlEmployee;
+        protected global::System.Web.UI.WebControls.Button btnSearch;
+        protected global::System.Web.UI.WebControls.GridView gvIncomplete;
+        protected global::System.Web.UI.WebControls.DropDownList ddlManualSite;
+        protected global::System.Web.UI.WebControls.DropDownList ddlManualEmployee;
+        protected global::System.Web.UI.WebControls.TextBox txtCheckInTime;
+        protected global::System.Web.UI.WebControls.TextBox txtCheckOutTime;
+        protected global::System.Web.UI.WebControls.TextBox txtReason;
+        protected global::System.Web.UI.WebControls.Button btnManualEntry;
+
+        private string GetConnectionString()
+        {
+            return Properties.Settings.Default.SQLCon;
+        }
+
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            if (Session["Username"] == null)
+            {
+                Response.Redirect("~/Login.aspx", false);
+                Context.ApplicationInstance.CompleteRequest();
+                return;
+            }
+
+            string role = Session["Role"]?.ToString()?.Trim();
+            if (role == null || !role.Equals("Admin", StringComparison.OrdinalIgnoreCase))
+            {
+                Response.Redirect("~/Dashboard.aspx", false);
+                Context.ApplicationInstance.CompleteRequest();
+                return;
+            }
+
+            if (!IsPostBack)
+            {
+                LoadSites();
+                LoadManualSites();
+            }
+        }
+
+        private void LoadSites()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(GetConnectionString()))
+                {
+                    string query = "SELECT SiteID, SiteName, SiteCode FROM Sites WHERE IsActive = 1 ORDER BY SiteName";
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.CommandTimeout = 15;
+                        using (SqlDataAdapter da = new SqlDataAdapter(cmd))
+                        {
+                            DataTable dt = new DataTable();
+                            da.Fill(dt);
+
+                            ddlSiteID.Items.Clear();
+                            ddlSiteID.Items.Add(new System.Web.UI.WebControls.ListItem("-- Select Site --", ""));
+                            foreach (DataRow row in dt.Rows)
+                            {
+                                string siteName = row["SiteName"] != DBNull.Value ? row["SiteName"].ToString() : "";
+                                string siteCode = row["SiteCode"] != DBNull.Value ? row["SiteCode"].ToString() : "";
+                                string displayText = string.IsNullOrEmpty(siteCode) ? siteName : $"{siteName} ({siteCode})";
+                                // Use SiteCode as the value since ReaderEvents.SiteId stores the site code, not numeric ID
+                                string value = !string.IsNullOrEmpty(siteCode) ? siteCode : row["SiteID"].ToString();
+                                ddlSiteID.Items.Add(new System.Web.UI.WebControls.ListItem(displayText, value));
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error loading sites: " + ex.Message, false);
+            }
+        }
+
+        protected void ddlSiteID_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            hfActivePanel.Value = "panelFind";
+            LoadEmployees();
+            gvIncomplete.DataSource = null;
+            gvIncomplete.DataBind();
+        }
+
+        protected void ddlEmployee_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            hfActivePanel.Value = "panelFind";
+            LoadIncompleteEntries();
+        }
+
+        private void LoadEmployees()
+        {
+            string siteId = ddlSiteID.SelectedValue;
+            ddlEmployee.Items.Clear();
+            
+            if (string.IsNullOrEmpty(siteId))
+            {
+                ddlEmployee.Items.Add(new ListItem("-- Select Site First --", ""));
+                return;
+            }
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(GetConnectionString()))
+                {
+                    conn.Open();
+                    // First try to load with IsActive = 1
+                    string query = "SELECT EmployeeID, NameSurname, EmployeeCode FROM Employees WHERE SiteID = @SiteID AND IsActive = 1 ORDER BY NameSurname";
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@SiteID", siteId);
+                        try
+                        {
+                            using (SqlDataReader reader = cmd.ExecuteReader())
+                            {
+                                ddlEmployee.Items.Add(new ListItem("-- Select Employee --", ""));
+                                while (reader.Read())
+                                {
+                                    string name = reader["NameSurname"].ToString();
+                                    string code = reader["EmployeeCode"] != DBNull.Value ? reader["EmployeeCode"].ToString() : "";
+                                    string text = string.IsNullOrEmpty(code) ? name : $"{name} ({code})";
+                                    ddlEmployee.Items.Add(new ListItem(text, name)); // storing Name as value since ReaderEvents uses PersonName
+                                }
+                            }
+                        }
+                        catch
+                        {
+                            // Fallback if IsActive column doesn't exist
+                            ddlEmployee.Items.Clear();
+                            query = "SELECT EmployeeID, NameSurname, EmployeeCode FROM Employees WHERE SiteID = @SiteID ORDER BY NameSurname";
+                            cmd.CommandText = query;
+                            using (SqlDataReader reader = cmd.ExecuteReader())
+                            {
+                                ddlEmployee.Items.Add(new ListItem("-- Select Employee --", ""));
+                                while (reader.Read())
+                                {
+                                    string name = reader["NameSurname"].ToString();
+                                    string code = reader["EmployeeCode"] != DBNull.Value ? reader["EmployeeCode"].ToString() : "";
+                                    string text = string.IsNullOrEmpty(code) ? name : $"{name} ({code})";
+                                    ddlEmployee.Items.Add(new ListItem(text, name));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error loading employees: " + ex.Message, false);
+            }
+        }
+
+        protected void btnSearch_Click(object sender, EventArgs e)
+        {
+            hfActivePanel.Value = "panelFind";
+            LoadIncompleteEntries();
+        }
+
+        private void LoadManualSites()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(GetConnectionString()))
+                {
+                    string query = "SELECT SiteID, SiteName, SiteCode FROM Sites WHERE IsActive = 1 ORDER BY SiteName";
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.CommandTimeout = 15;
+                        using (SqlDataAdapter da = new SqlDataAdapter(cmd))
+                        {
+                            DataTable dt = new DataTable();
+                            da.Fill(dt);
+
+                            ddlManualSite.Items.Clear();
+                            ddlManualSite.Items.Add(new ListItem("-- Select Site --", ""));
+                            foreach (DataRow row in dt.Rows)
+                            {
+                                string siteName    = row["SiteName"] != DBNull.Value ? row["SiteName"].ToString() : "";
+                                string siteCode    = row["SiteCode"] != DBNull.Value ? row["SiteCode"].ToString() : "";
+                                string displayText = string.IsNullOrEmpty(siteCode) ? siteName : $"{siteName} ({siteCode})";
+                                string value       = !string.IsNullOrEmpty(siteCode) ? siteCode : row["SiteID"].ToString();
+                                ddlManualSite.Items.Add(new ListItem(displayText, value));
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error loading sites for manual entry: " + ex.Message, false);
+            }
+        }
+
+        protected void ddlManualSite_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            hfActivePanel.Value = "panelManual";
+            LoadManualEmployees();
+        }
+
+        private void LoadManualEmployees()
+        {
+            string siteId = ddlManualSite.SelectedValue;
+            ddlManualEmployee.Items.Clear();
+
+            if (string.IsNullOrEmpty(siteId))
+            {
+                ddlManualEmployee.Items.Add(new ListItem("-- Select Site First --", ""));
+                return;
+            }
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(GetConnectionString()))
+                {
+                    conn.Open();
+                    string query = "SELECT EmployeeID, NameSurname, EmployeeCode FROM Employees WHERE SiteID = @SiteID AND IsActive = 1 ORDER BY NameSurname";
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@SiteID", siteId);
+                        try
+                        {
+                            using (SqlDataReader reader = cmd.ExecuteReader())
+                            {
+                                ddlManualEmployee.Items.Add(new ListItem("-- Select Employee --", ""));
+                                while (reader.Read())
+                                {
+                                    string name = reader["NameSurname"].ToString();
+                                    string code = reader["EmployeeCode"] != DBNull.Value ? reader["EmployeeCode"].ToString() : "";
+                                    string text = string.IsNullOrEmpty(code) ? name : $"{name} ({code})";
+                                    ddlManualEmployee.Items.Add(new ListItem(text, name));
+                                }
+                            }
+                        }
+                        catch
+                        {
+                            ddlManualEmployee.Items.Clear();
+                            cmd.CommandText = "SELECT EmployeeID, NameSurname, EmployeeCode FROM Employees WHERE SiteID = @SiteID ORDER BY NameSurname";
+                            using (SqlDataReader reader = cmd.ExecuteReader())
+                            {
+                                ddlManualEmployee.Items.Add(new ListItem("-- Select Employee --", ""));
+                                while (reader.Read())
+                                {
+                                    string name = reader["NameSurname"].ToString();
+                                    string code = reader["EmployeeCode"] != DBNull.Value ? reader["EmployeeCode"].ToString() : "";
+                                    string text = string.IsNullOrEmpty(code) ? name : $"{name} ({code})";
+                                    ddlManualEmployee.Items.Add(new ListItem(text, name));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error loading employees for manual entry: " + ex.Message, false);
+            }
+        }
+
+        private void LoadIncompleteEntries()
+        {
+            string siteId = ddlSiteID.SelectedValue;
+            string empName = ddlEmployee.SelectedValue;
+
+            if (string.IsNullOrEmpty(siteId))
+            {
+                ShowMessage("Please select a site.", false);
+                return;
+            }
+
+            if (string.IsNullOrEmpty(empName))
+            {
+                gvIncomplete.DataSource = null;
+                gvIncomplete.DataBind();
+                return;
+            }
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(GetConnectionString()))
+                {
+                    conn.Open();
+                    // Still Inside = has a checkIn on a date with no matching checkOut on the same date.
+                    // EventType stores 'checkIn' / 'checkOut' — this is the real direction field.
+                    string query = @"
+                        SELECT TOP 50
+                            ci.Id                                           AS Id,
+                            ISNULL(e.EmployeeCode, 'Unknown')               AS EmployeeID,
+                            ci.PersonName                                   AS Name,
+                            ci.SiteId                                       AS SiteID,
+                            CONVERT(DATE, ci.Timestamp)                     AS WorkDate,
+                            ci.Timestamp                                    AS ClockInTime,
+                            DATEDIFF(MINUTE, ci.Timestamp, GETDATE())       AS MinutesInside
+                        FROM ReaderEvents ci
+                        LEFT JOIN Employees e
+                            ON  e.NameSurname = ci.PersonName
+                            AND CAST(e.SiteID AS NVARCHAR(MAX)) = CAST(ci.SiteId AS NVARCHAR(MAX))
+                        WHERE ci.SiteId        = @SiteID
+                          AND ci.PersonName    = @EmpName
+                          AND ci.EventType     = 'checkIn'
+                          AND ci.Timestamp    >= DATEADD(day, -30, GETDATE())
+                          AND NOT EXISTS (
+                              SELECT 1 FROM ReaderEvents co
+                              WHERE co.PersonName = ci.PersonName
+                                AND co.SiteId     = ci.SiteId
+                                AND co.EventType  = 'checkOut'
+                                AND CONVERT(DATE, co.Timestamp) = CONVERT(DATE, ci.Timestamp)
+                          )
+                        ORDER BY ci.Timestamp DESC
+                    ";
+                    
+                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.CommandTimeout = 30;
+                        cmd.Parameters.AddWithValue("@SiteID", siteId);
+                        cmd.Parameters.AddWithValue("@EmpName", empName);
+                        
+                        using (SqlDataAdapter da = new SqlDataAdapter(cmd))
+                        {
+                            DataTable dt = new DataTable();
+                            da.Fill(dt);
+                            gvIncomplete.DataSource = dt;
+                            gvIncomplete.DataBind();
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error loading data: " + ex.Message, false);
+                gvIncomplete.DataSource = null;
+                gvIncomplete.DataBind();
+            }
+        }
+
+        protected void gvIncomplete_RowCommand(object sender, GridViewCommandEventArgs e)
+        {
+            if (e.CommandName == "CompleteEntry")
+            {
+                hfActivePanel.Value = "panelFind";
+                int index = Convert.ToInt32(e.CommandArgument);
+                GridViewRow row = gvIncomplete.Rows[index];
+                TextBox txtClockOut = (TextBox)row.FindControl("txtClockOut");
+
+                if (txtClockOut == null || string.IsNullOrEmpty(txtClockOut.Text))
+                {
+                    ShowMessage("Please provide a clock out time.", false);
+                    return;
+                }
+
+                DateTime outTime;
+                if (!DateTime.TryParse(txtClockOut.Text, CultureInfo.InvariantCulture, DateTimeStyles.None, out outTime))
+                {
+                    ShowMessage("Invalid date/time format for clock out.", false);
+                    return;
+                }
+
+                // Read person and site from the bound cells (0=Id hidden, 1=EmployeeID, 2=Name, 3=SiteID)
+                string personName = row.Cells[2].Text;
+                string siteId     = row.Cells[3].Text;
+
+                // Retrieve the clock-in time from ClockInTime cell to validate ordering
+                DateTime clockInTime;
+                string clockInRaw = ((System.Web.UI.WebControls.Label)row.FindControl("lblClockInTime") != null)
+                    ? ((System.Web.UI.WebControls.Label)row.FindControl("lblClockInTime")).Text
+                    : row.Cells[5].Text; // ClockInTime is cell index 5 (0=Id,1=EmpID,2=Name,3=SiteID,4=WorkDate,5=ClockInTime)
+
+                if (DateTime.TryParse(clockInRaw, out clockInTime) && outTime <= clockInTime)
+                {
+                    ShowMessage("Clock out time must be after the clock in time (" + clockInTime.ToString("yyyy-MM-dd HH:mm") + ").", false);
+                    return;
+                }
+
+                if (outTime > DateTime.Now)
+                {
+                    ShowMessage("Clock out time cannot be in the future.", false);
+                    return;
+                }
+
+                try
+                {
+                    using (SqlConnection conn = new SqlConnection(GetConnectionString()))
+                    {
+                        conn.Open();
+                        // Insert a checkOut event to pair with the existing checkIn.
+                        // ReaderId is NOT NULL so we use 'ADMIN' to mark it as manually inserted.
+                        // PayloadRaw (nvarchar MAX, nullable) stores the admin audit note.
+                        string query = @"INSERT INTO ReaderEvents (PersonName, Timestamp, EventType, ReaderId, IsEmulated, SiteId, PayloadRaw)
+                                         VALUES (@PersonName, @OutTime, 'checkOut', 'ADMIN', 1, @SiteId, @PayloadRaw)";
+                        using (SqlCommand cmd = new SqlCommand(query, conn))
+                        {
+                            cmd.Parameters.AddWithValue("@PersonName", personName);
+                            cmd.Parameters.AddWithValue("@OutTime",    outTime);
+                            cmd.Parameters.AddWithValue("@SiteId",     siteId);
+                            cmd.Parameters.AddWithValue("@PayloadRaw", "Admin manual checkOut");
+                            cmd.ExecuteNonQuery();
+                        }
+                    }
+
+                    ShowMessage(string.Format("Clock out saved for {0} at {1:yyyy-MM-dd HH:mm}.", personName, outTime), true);
+                    LoadIncompleteEntries();
+                }
+                catch (Exception ex)
+                {
+                    ShowMessage("Error saving entry: " + ex.Message, false);
+                }
+            }
+        }
+
+        protected void btnManualEntry_Click(object sender, EventArgs e)
+        {
+            hfActivePanel.Value = "panelManual";
+            string siteId      = ddlManualSite.SelectedValue;
+            string empID       = ddlManualEmployee.SelectedValue;
+            string checkInRaw  = txtCheckInTime.Text.Trim();
+            string checkOutRaw = txtCheckOutTime.Text.Trim();
+            string reason      = txtReason.Text.Trim();
+
+            if (string.IsNullOrEmpty(siteId))
+            {
+                ShowMessage("Please select a site in the Manual Scan Entry panel.", false);
+                Page.SetFocus(ddlManualSite);
+                return;
+            }
+
+            if (string.IsNullOrEmpty(empID))
+            {
+                ShowMessage("Please select an employee in the Manual Scan Entry panel.", false);
+                Page.SetFocus(ddlManualEmployee);
+                return;
+            }
+
+            if (string.IsNullOrEmpty(checkInRaw) && string.IsNullOrEmpty(checkOutRaw))
+            {
+                ShowMessage("Please provide at least a Check In time or a Check Out time.", false);
+                Page.SetFocus(txtCheckInTime);
+                return;
+            }
+
+            DateTime checkInTime  = DateTime.MinValue;
+            DateTime checkOutTime = DateTime.MinValue;
+
+            if (!string.IsNullOrEmpty(checkInRaw))
+            {
+                if (!DateTime.TryParse(checkInRaw, CultureInfo.InvariantCulture, DateTimeStyles.None, out checkInTime))
+                {
+                    ShowMessage("Invalid Check In date/time format.", false);
+                    Page.SetFocus(txtCheckInTime);
+                    return;
+                }
+                if (checkInTime > DateTime.Now)
+                {
+                    ShowMessage("Check In time cannot be in the future.", false);
+                    Page.SetFocus(txtCheckInTime);
+                    return;
+                }
+            }
+
+            if (!string.IsNullOrEmpty(checkOutRaw))
+            {
+                if (!DateTime.TryParse(checkOutRaw, CultureInfo.InvariantCulture, DateTimeStyles.None, out checkOutTime))
+                {
+                    ShowMessage("Invalid Check Out date/time format.", false);
+                    Page.SetFocus(txtCheckOutTime);
+                    return;
+                }
+                if (checkOutTime > DateTime.Now)
+                {
+                    ShowMessage("Check Out time cannot be in the future.", false);
+                    Page.SetFocus(txtCheckOutTime);
+                    return;
+                }
+            }
+
+            if (checkInTime != DateTime.MinValue && checkOutTime != DateTime.MinValue
+                && checkOutTime <= checkInTime)
+            {
+                ShowMessage("Check Out time must be after the Check In time.", false);
+                Page.SetFocus(txtCheckOutTime);
+                return;
+            }
+
+            if (reason.Length > 500)
+                reason = reason.Substring(0, 500);
+
+            string payloadRaw = string.IsNullOrEmpty(reason) ? "Admin manual entry" : reason;
+            int saved = 0;
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(GetConnectionString()))
+                {
+                    conn.Open();
+                    string query = @"INSERT INTO ReaderEvents
+                                        (PersonName, Timestamp, EventType, ReaderId, IsEmulated, SiteId, PayloadRaw)
+                                     VALUES
+                                        (@PersonName, @Timestamp, @EventType, 'ADMIN', 1, @SiteId, @PayloadRaw)";
+
+                    if (checkInTime != DateTime.MinValue)
+                    {
+                        using (SqlCommand cmd = new SqlCommand(query, conn))
+                        {
+                            cmd.Parameters.AddWithValue("@PersonName", empID);
+                            cmd.Parameters.AddWithValue("@SiteId",     siteId);
+                            cmd.Parameters.AddWithValue("@Timestamp",  checkInTime);
+                            cmd.Parameters.AddWithValue("@EventType",  "checkIn");
+                            cmd.Parameters.AddWithValue("@PayloadRaw", payloadRaw);
+                            cmd.ExecuteNonQuery();
+                            saved++;
+                        }
+                    }
+
+                    if (checkOutTime != DateTime.MinValue)
+                    {
+                        using (SqlCommand cmd = new SqlCommand(query, conn))
+                        {
+                            cmd.Parameters.AddWithValue("@PersonName", empID);
+                            cmd.Parameters.AddWithValue("@SiteId",     siteId);
+                            cmd.Parameters.AddWithValue("@Timestamp",  checkOutTime);
+                            cmd.Parameters.AddWithValue("@EventType",  "checkOut");
+                            cmd.Parameters.AddWithValue("@PayloadRaw", payloadRaw);
+                            cmd.ExecuteNonQuery();
+                            saved++;
+                        }
+                    }
+                }
+
+                string detail = saved == 2
+                    ? string.Format("Check In at {0:yyyy-MM-dd HH:mm} and Check Out at {1:yyyy-MM-dd HH:mm}", checkInTime, checkOutTime)
+                    : checkInTime  != DateTime.MinValue
+                        ? string.Format("Check In at {0:yyyy-MM-dd HH:mm}",  checkInTime)
+                        : string.Format("Check Out at {0:yyyy-MM-dd HH:mm}", checkOutTime);
+
+                ShowMessage(string.Format("Saved for {0}: {1}.", empID, detail), true);
+                txtCheckInTime.Text  = "";
+                txtCheckOutTime.Text = "";
+                txtReason.Text       = "";
+                Page.SetFocus(ddlManualSite);
+                LoadIncompleteEntries();
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("Error saving manual entry: " + ex.Message, false);
+            }
+        }
+
+        private void ShowMessage(string message, bool isSuccess)
+        {
+            lblMessage.Text    = message;
+            lblMessage.Visible = true;
+            lblMessage.CssClass = isSuccess ? "alert alert-success" : "alert alert-error";
+
+            // Also fire the system-wide toast so the admin sees a clean popup
+            if (isSuccess)
+                SohTnaNotify.Success(this, "Success", message);
+            else
+                SohTnaNotify.Error(this, "Error", message);
+        }
+    }
+}

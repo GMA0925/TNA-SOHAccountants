@@ -1,0 +1,125 @@
+# Quick Reference: Visual SiteId Display
+
+## What You'll See
+
+When you load EmployeeEnrollment.aspx, you'll see messages showing the SiteId being queried.
+
+---
+
+## The Three Messages
+
+### 1?? WHILE SYNCING (Blue)
+```
+?? Syncing ReaderEvents for SiteId: 1...
+```
+**Meaning:** Sync is running for Site 1
+
+---
+
+### 2?? SUCCESS (Green)
+```
+? SiteId 1: 5 new employee(s) created from ReaderEvents.
+```
+**Meaning:** Sync completed, 5 employees created for Site 1
+
+---
+
+### 3?? NO CHANGES (Green)
+```
+?? SiteId 1: No new employees found to sync.
+```
+**Meaning:** Sync completed, no new employees for Site 1
+
+---
+
+### 4?? ERROR (Red)
+```
+? Error syncing SiteId 1: Connection timeout
+```
+**Meaning:** Error occurred while syncing Site 1
+
+---
+
+## Key Point
+
+**The SiteId number** comes from your login:
+- It tells you which site's data is being synced
+- It comes from `Session["SiteId"]`
+- It's stored in the Users table when you log in
+
+**Example:**
+```
+? SiteId 2: 3 new employees created
+   ???????
+      ?? You logged in as a Site 2 user
+```
+
+---
+
+## Message Location
+
+On EmployeeEnrollment.aspx page:
+- Top of form
+- Before the Employee input fields
+- Above the Employees grid
+
+---
+
+## Timeline
+
+```
+Page Loads
+    ?
+?? Blue: Syncing... (shows for ~1 second)
+    ?
+? Green: Success message (shows permanently)
+    ?
+User actions replace message (Save, Edit, etc.)
+```
+
+---
+
+## Multi-Site Test
+
+**Login as Site 1 user:**
+```
+? SiteId 1: 5 new employee(s) created from ReaderEvents.
+```
+
+**Logout, Login as Site 2 user:**
+```
+?? SiteId 2: No new employees found to sync.
+```
+
+**Logout, Login as Site 3 user:**
+```
+? SiteId 3: 2 new employee(s) created from ReaderEvents.
+```
+
+Each user sees their own SiteId!
+
+---
+
+## What Changed in Code
+
+**Before:** Showed popup alerts (could miss them)
+```
+? No SiteId indication
+? Alert box pops up and disappears
+? Hard to track multi-site issues
+```
+
+**After:** Shows on page with SiteId visible (always visible)
+```
+? SiteId clearly displayed
+? Message stays on page
+? Easy to verify which site is being queried
+```
+
+---
+
+## That's It!
+
+Just log in to EmployeeEnrollment.aspx and look at the message area to see the SiteId being queried. The feature is live and ready to use.
+
+**Build Status:** ? Successful

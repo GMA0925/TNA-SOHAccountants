@@ -1,0 +1,133 @@
+﻿using System;
+using System.Data;
+using System.Data.SqlClient;
+using System.Web.UI.WebControls;
+
+namespace TimeAttendance.WebForms
+{
+    public partial class ComplianceViolations : System.Web.UI.Page
+    {
+        private string _connStr = Properties.Settings.Default.SQLCon;
+
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            if (Session["Username"] == null || Session["Role"]?.ToString() != "Admin")
+            {
+                Response.Redirect("Login.aspx");
+                return;
+            }
+
+            if (!IsPostBack)
+            {
+                LoadStatistics();
+                LoadViolations();
+            }
+        }
+
+        private void LoadStatistics()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = @"
+                        SELECT 
+                            COUNT(*) as TotalViolations,
+                            SUM(CASE WHEN Severity = 'Critical' THEN 1 ELSE 0 END) as Critical,
+                            SUM(CASE WHEN Status IN ('Reported', 'Investigating') THEN 1 ELSE 0 END) as OpenCases,
+                            SUM(CASE WHEN Status = 'Resolved' THEN 1 ELSE 0 END) as Resolved
+                        FROM ComplianceViolation";
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+                    conn.Open();
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            lblTotalViolations.Text = reader["TotalViolations"] != DBNull.Value ? reader["TotalViolations"].ToString() : "0";
+                            lblCritical.Text = reader["Critical"] != DBNull.Value ? reader["Critical"].ToString() : "0";
+                            lblOpenCases.Text = reader["OpenCases"] != DBNull.Value ? reader["OpenCases"].ToString() : "0";
+                            lblResolved.Text = reader["Resolved"] != DBNull.Value ? reader["Resolved"].ToString() : "0";
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading statistics: {ex.Message}");
+            }
+        }
+
+        private void LoadViolations()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(_connStr))
+                {
+                    string query = @"
+                        SELECT cv.ViolationID, cv.ViolationDate, cv.ViolationType, cv.Severity, cv.Description, 
+                               ISNULL(e.NameSurname, 'System') as EmployeeName, cv.Status, cv.ActionTaken
+                        FROM ComplianceViolation cv
+                        LEFT JOIN Employees e ON cv.EmployeeID = e.EmployeeID";
+
+                    if (!string.IsNullOrEmpty(ddlSeverity.SelectedValue))
+                    {
+                        query += " WHERE cv.Severity = @Severity";
+                    }
+
+                    if (!string.IsNullOrEmpty(ddlStatus.SelectedValue))
+                    {
+                        query += (string.IsNullOrEmpty(ddlSeverity.SelectedValue) ? " WHERE " : " AND ") + "cv.Status = @Status";
+                    }
+
+                    query += " ORDER BY cv.ViolationDate DESC";
+
+                    SqlCommand cmd = new SqlCommand(query, conn);
+
+                    if (!string.IsNullOrEmpty(ddlSeverity.SelectedValue))
+                    {
+                        cmd.Parameters.AddWithValue("@Severity", ddlSeverity.SelectedValue);
+                    }
+
+                    if (!string.IsNullOrEmpty(ddlStatus.SelectedValue))
+                    {
+                        cmd.Parameters.AddWithValue("@Status", ddlStatus.SelectedValue);
+                    }
+
+                    SqlDataAdapter da = new SqlDataAdapter(cmd);
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
+
+                    gvViolations.DataSource = dt;
+                    gvViolations.DataBind();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading violations: {ex.Message}");
+            }
+        }
+
+        protected void btnSearch_Click(object sender, EventArgs e)
+        {
+            LoadViolations();
+        }
+
+        #region Navigation
+
+        protected void btnAuditTrail_Click(object sender, EventArgs e) => Response.Redirect("AuditTrail.aspx");
+        protected void btnComplianceStatus_Click(object sender, EventArgs e) => Response.Redirect("ComplianceStatus.aspx");
+        protected void btnDataAccess_Click(object sender, EventArgs e) => Response.Redirect("DataAccessLog.aspx");
+        protected void btnViolations_Click(object sender, EventArgs e) => Response.Redirect("ComplianceViolations.aspx");
+        protected void btnReports_Click(object sender, EventArgs e) => Response.Redirect("ComplianceReports.aspx");
+
+        protected void btnLogout_Click(object sender, EventArgs e)
+        {
+            Session.Clear();
+            Session.Abandon();
+            Response.Redirect("Login.aspx");
+        }
+
+        #endregion
+    }
+}
